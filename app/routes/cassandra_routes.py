@@ -1,93 +1,121 @@
+from fastapi import APIRouter, HTTPException, Body, Query
+from cassandra import InvalidRequest
+from app.cassandra_client import CassandraClient, get_cluster_info
 import os
-import uuid
-from cassandra.cluster import Cluster, Session
-from typing import List, Dict
 
-CONTACT_STR = os.getenv("CASSANDRA_CONTACT_POINTS", "cassandra1,cassandra2,cassandra3")
-CONTACT_POINTS = [c.strip() for c in CONTACT_STR.split(",") if c.strip()]
+# --------------------------------------------------
+# Router Definition
+# --------------------------------------------------
+cassandra_router = APIRouter()
+
+# Cassandra Configuration
+CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "testkeyspace")
+
+# Initialize Client
+client = CassandraClient(keyspace=CASSANDRA_KEYSPACE)
 
 
-class CassandraClient:
-    def __init__(self, contact_points: List[str] = CONTACT_POINTS, keyspace: str = "testkeyspace"):
-        self.contact_points = contact_points
-        self.keyspace = keyspace
-        self.cluster: Cluster = None
-        self.session: Session = None
+# --------------------------------------------------
+# Cluster Info / Health
+# --------------------------------------------------
+@cassandra_router.get("/status")
+def cassandra_status():
+    """
+    Returns basic cluster info: local node + peers.
+    """
+    try:
+        info = get_cluster_info()
+        return info
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    def connect(self):
-        if not self.cluster:
-            self.cluster = Cluster(contact_points=self.contact_points)
-            self.session = self.cluster.connect(self.keyspace)
 
-    def close(self):
-        if self.cluster:
-            self.cluster.shutdown()
+@cassandra_router.get("/health")
+def cassandra_health():
+    """
+    Simple health check to verify Cassandra cluster connectivity.
+    """
+    try:
+        cluster_info = get_cluster_info()
+        return {"status": "ok", "cluster": cluster_info["local"]["data_center"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # ---------------------------
-    # Cluster Info
-    # ---------------------------
-    def get_cluster_info(self):
-        self.connect()
-        local_row = self.session.execute("SELECT host_id, data_center, rack, broadcast_address FROM system.local").one()
-        local = {
-            "host_id": str(local_row.host_id) if local_row else None,
-            "data_center": getattr(local_row, "data_center", None),
-            "rack": getattr(local_row, "rack", None),
-            "broadcast_address": str(getattr(local_row, "broadcast_address", None))
-        }
 
-        peers = []
-        rows = self.session.execute("SELECT peer, data_center, host_id, rpc_address FROM system.peers")
-        for r in rows:
-            peers.append({
-                "peer": str(getattr(r, "peer", None)),
-                "data_center": getattr(r, "data_center", None),
-                "host_id": str(getattr(r, "host_id", None)),
-                "rpc_address": str(getattr(r, "rpc_address", None))
-            })
+# --------------------------------------------------
+# CRUD Operations
+# --------------------------------------------------
+@cassandra_router.post("/insert")
+def insert_document(
+    table: str = Query(..., description="Cassandra table name"),
+    document: dict = Body(..., description="Document (row) to insert"),
+):
+    """
+    Insert a document (row) into a Cassandra table.
+    """
+    try:
+        result = client.insert_document(table, document)
+        return {"inserted": True, "data": result}
+    except InvalidRequest as e:
+        raise HTTPException(status_code=400, detail=f"Invalid request: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        return {"local": local, "peers": peers}
 
-    # ---------------------------
-    # CRUD
-    # ---------------------------
-    def insert_document(self, table: str, document: Dict):
-        self.connect()
-        # Add a generated _id like Mongo
-        doc_id = str(uuid.uuid4())
-        document_with_id = {"_id": doc_id, **document}
-        columns = ", ".join(document_with_id.keys())
-        placeholders = ", ".join(["%s"] * len(document_with_id))
-        query = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
-        self.session.execute(query, tuple(document_with_id.values()))
-        return {"inserted_id": doc_id, "document": document_with_id}
-
-    def find_documents(self, table: str, filter_query: Dict = None):
-        self.connect()
-        query = f"SELECT * FROM {table}"
-        params = ()
-        if filter_query:
-            conditions = " AND ".join([f"{k}=%s" for k in filter_query.keys()])
-            query += f" WHERE {conditions}"
-            params = tuple(filter_query.values())
-        rows = self.session.execute(query, params)
-        results = []
-        for row in rows:
-            row_dict = dict(row._asdict())
-            results.append({"_id": row_dict.get("_id", str(uuid.uuid4())), "collection": table, "document": row_dict})
+@cassandra_router.post("/find")
+def find_documents(
+    table: str = Query(..., description="Cassandra table name"),
+    filters: dict = Body(default={}, description="Optional filters"),
+):
+    """
+    Retrieve all rows from the specified Cassandra table (supports basic filters).
+    """
+    try:
+        results = client.find_documents(table, filters)
         return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    def update_document(self, table: str, filter_query: Dict, update_query: Dict):
-        self.connect()
-        set_clause = ", ".join([f"{k}=%s" for k in update_query.keys()])
-        where_clause = " AND ".join([f"{k}=%s" for k in filter_query.keys()])
-        query = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
-        self.session.execute(query, tuple(update_query.values()) + tuple(filter_query.values()))
-        return {"status": "ok"}
 
-    def delete_document(self, table: str, filter_query: Dict):
-        self.connect()
-        where_clause = " AND ".join([f"{k}=%s" for k in filter_query.keys()])
-        query = f"DELETE FROM {table} WHERE {where_clause}"
-        self.session.execute(query, tuple(filter_query.values()))
-        return {"status": "ok"}
+@cassandra_router.put("/update")
+def update_document(
+    table: str = Query(..., description="Cassandra table name"),
+    body: dict = Body(..., description="Filter and update instructions"),
+):
+    """
+    Update rows in the Cassandra table matching the given filter.
+
+    Example body:
+    {
+        "filter": {"id": "<uuid>"},
+        "update": {"status": "inactive"}
+    }
+    """
+    try:
+        filter_query = body.get("filter", {})
+        update_query = body.get("update", {})
+        result = client.update_document(table, filter_query, update_query)
+        return {"updated": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@cassandra_router.delete("/delete")
+def delete_document(
+    table: str = Query(..., description="Cassandra table name"),
+    body: dict = Body(..., description="Filter criteria"),
+):
+    """
+    Delete rows from the Cassandra table matching the provided filter.
+
+    Example body:
+    {
+        "filter": {"id": "<uuid>"}
+    }
+    """
+    try:
+        filters = body.get("filter", {})
+        result = client.delete_document(table, filters)
+        return {"deleted": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

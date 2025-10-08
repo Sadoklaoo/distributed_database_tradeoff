@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app.routes.mongo_routes import router as mongo_router
-from app.routes.cassandra_routes import router as cassandra_router
+from app.routes.cassandra_routes import cassandra_router 
 from app.mongo_client import MongoDBClient
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo1:27017")
