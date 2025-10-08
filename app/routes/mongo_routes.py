@@ -1,8 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Body, Query
+from pydantic import BaseModel
+from typing import Dict, Any, Optional, List
 from app.mongo_client import MongoDBClient
 from app.utils import bson_to_json_compatible
-from fastapi import APIRouter, HTTPException, Body
-
 import os
 
 router = APIRouter()
@@ -11,10 +11,38 @@ db_name = os.getenv("MONGO_DB", "testDB")
 client = MongoDBClient(uri=mongo_uri, db_name=db_name)
 
 # ---------------------------
+# Pydantic Models
+# ---------------------------
+class FindBody(BaseModel):
+    filter: Optional[Dict[str, Any]] = {}
+    projection: Optional[Dict[str, int]] = None
+    limit: Optional[int] = 0
+
+class UpdateBody(BaseModel):
+    filter: Dict[str, Any]
+    update: Dict[str, Any]
+
+class DeleteBody(BaseModel):
+    filter: Dict[str, Any]
+
+class InsertResponse(BaseModel):
+    inserted_id: str
+
+class UpdateResponse(BaseModel):
+    matched_count: int
+    modified_count: int
+    acknowledged: bool
+
+class DeleteResponse(BaseModel):
+    deleted_count: int
+    acknowledged: bool
+
+# ---------------------------
 # Health / Status
 # ---------------------------
 @router.get("/ping")
 async def ping_mongo():
+    """Ping MongoDB to verify connection"""
     try:
         result = await client.ping()
         return bson_to_json_compatible(result)
@@ -23,6 +51,7 @@ async def ping_mongo():
 
 @router.get("/status")
 async def status_mongo():
+    """Get MongoDB replica set status"""
     try:
         result = await client.replset_status()
         return bson_to_json_compatible(result)
@@ -32,58 +61,70 @@ async def status_mongo():
 # ---------------------------
 # CRUD Endpoints
 # ---------------------------
-@router.post("/insert")
-async def insert_document(collection: str, document: dict):
+@router.post("/insert", response_model=InsertResponse)
+async def insert_document(
+    collection: str = Query(..., description="MongoDB collection name"),
+    document: Dict[str, Any] = Body(..., description="Document to insert", example={"name": "Device A", "status": "active"})
+):
+    """Insert a document into a MongoDB collection"""
     try:
         inserted_id = await client.insert_document(collection, document)
-        return {"inserted_id": inserted_id}
+        return {"inserted_id": str(inserted_id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/find")
-async def find_documents(collection: str, body: dict = Body(...)):
+async def find_documents(
+    collection: str = Query(..., description="MongoDB collection name"),
+    body: FindBody = Body(..., description="Filter and limit options")
+):
+    """Find documents in a MongoDB collection"""
     try:
-        filter_query = body.get("filter", {})
-        projection = body.get("projection")
-        limit = body.get("limit", 0)
-        docs = await client.find_documents(collection, filter_query)
+        # Only pass `filter` (no projection)
+        docs = await client.find_documents(collection, body.filter)
         return bson_to_json_compatible(docs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/update")
-async def update_document(collection: str, body: dict = Body(...)):
+@router.put("/update", response_model=UpdateResponse)
+async def update_document(
+    collection: str = Query(..., description="MongoDB collection name"),
+    body: UpdateBody = Body(..., description="Filter and update instructions")
+):
     """
-    Example:
+    Update documents in a MongoDB collection.
+
+    Example body:
     {
       "filter": {"name": "Device A"},
-      "update": {"$set": {"status": "inactive"}}
+      "update": {"status": "inactive"}
     }
     """
     try:
-        filter_query = body.get("filter", {})
-        update_query = body.get("update", {})
-        result = await client.update_document(collection, filter_query, update_query)
+        result = await client.update_document(collection, body.filter, body.update)
         return {
-            "matched_count": result.matched_count,
-            "modified_count": result.modified_count,
-            "acknowledged": result.acknowledged
+            "matched_count": result["matched_count"],
+            "modified_count": result["modified_count"],
+            "acknowledged": result["acknowledged"]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.delete("/delete")
-async def delete_document(collection: str, body: dict = Body(...)):
+@router.delete("/delete", response_model=DeleteResponse)
+async def delete_document(
+    collection: str = Query(..., description="MongoDB collection name"),
+    body: DeleteBody = Body(..., description="Filter criteria for deletion")
+):
     """
-    Example:
+    Delete documents in a MongoDB collection.
+
+    Example body:
     {
       "filter": {"name": "Device A"}
     }
     """
     try:
-        filter_query = body.get("filter", {})
-        result = await client.delete_document(collection, filter_query)
+        result = await client.delete_document(collection, body.filter)
         return {
             "deleted_count": result.deleted_count,
             "acknowledged": result.acknowledged
