@@ -1,0 +1,121 @@
+version: "3.9"
+
+services:
+  # Controller
+  controller:
+    build:
+      context: ./controller
+      dockerfile: Dockerfile
+    container_name: controller_api
+    restart: always
+    environment:
+      - MONGO_URI=mongodb://mongo1:27017,mongo2:27017,mongo3:27017/testDB?replicaSet=rs0
+      - MONGO_DB=testDB
+      - CASSANDRA_KEYSPACE=testkeyspace
+      - CASSANDRA_CONTACT_POINTS=cassandra1,cassandra2,cassandra3
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo1
+      - mongo2
+      - mongo3
+      - cassandra1
+      - cassandra2
+      - cassandra3
+    command: >
+      bash -c "echo '⏳ Waiting for Cassandra cluster...' && sleep 90 &&
+               echo '🚀 Starting FastAPI controller...' &&
+               uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+
+  # MongoDB Replica Set
+  mongo1:
+    image: mongo:6.0
+    container_name: mongo1
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./data/mongo1:/data/db
+      - ./scripts/rs-init.js:/docker-entrypoint-initdb.d/rs-init.js:ro
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+
+  mongo2:
+    image: mongo:6.0
+    container_name: mongo2
+    restart: always
+    ports:
+      - "27018:27017"
+    volumes:
+      - ./data/mongo2:/data/db
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    depends_on:
+      - mongo1
+
+  mongo3:
+    image: mongo:6.0
+    container_name: mongo3
+    restart: always
+    ports:
+      - "27019:27017"
+    volumes:
+      - ./data/mongo3:/data/db
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    depends_on:
+      - mongo1
+
+  # Cassandra Cluster
+  cassandra1:
+    image: cassandra:4.1
+    container_name: cassandra1
+    restart: always
+    environment:
+      - MAX_HEAP_SIZE=1024M
+      - HEAP_NEWSIZE=128M
+      - CASSANDRA_JVM_OPTS=-XX:+UseG1GC
+      - CASSANDRA_CLUSTER_NAME=TestCluster
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - CASSANDRA_BROADCAST_ADDRESS=cassandra1
+      - CASSANDRA_SEEDS=cassandra1
+    ports:
+      - "9042:9042"
+    volumes:
+      - ./data/cassandra1:/var/lib/cassandra
+      - ./scripts:/docker-entrypoint-initdb.d
+
+  cassandra2:
+    image: cassandra:4.1
+    container_name: cassandra2
+    restart: always
+    environment:
+      - MAX_HEAP_SIZE=1024M
+      - HEAP_NEWSIZE=128M
+      - CASSANDRA_JVM_OPTS=-XX:+UseG1GC
+      - CASSANDRA_CLUSTER_NAME=TestCluster
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - CASSANDRA_BROADCAST_ADDRESS=cassandra2
+      - CASSANDRA_SEEDS=cassandra1
+    depends_on:
+      - cassandra1
+    command: bash -c "sleep 30 && cassandra -f"
+    volumes:
+      - ./data/cassandra2:/var/lib/cassandra
+      - ./scripts:/docker-entrypoint-initdb.d
+
+  cassandra3:
+    image: cassandra:4.1
+    container_name: cassandra3
+    restart: always
+    environment:
+      - MAX_HEAP_SIZE=1024M
+      - HEAP_NEWSIZE=128M
+      - CASSANDRA_JVM_OPTS=-XX:+UseG1GC
+      - CASSANDRA_CLUSTER_NAME=TestCluster
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - CASSANDRA_BROADCAST_ADDRESS=cassandra3
+      - CASSANDRA_SEEDS=cassandra1
+    depends_on:
+      - cassandra1
+    command: bash -c "sleep 45 && cassandra -f"
+    volumes:
+      - ./data/cassandra3:/var/lib/cassandra
+      - ./scripts:/docker-entrypoint-initdb.d

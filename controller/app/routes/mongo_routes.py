@@ -102,11 +102,7 @@ async def update_document(
     """
     try:
         result = await client.update_document(collection, body.filter, body.update)
-        return {
-            "matched_count": result["matched_count"],
-            "modified_count": result["modified_count"],
-            "acknowledged": result["acknowledged"]
-        }
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -125,9 +121,6 @@ async def delete_document(
     """
     try:
         result = await client.delete_document(collection, body.filter)
-        return {
-            "deleted_count": result.deleted_count,
-            "acknowledged": result.acknowledged
-        }
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

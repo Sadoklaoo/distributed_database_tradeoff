@@ -66,7 +66,8 @@ class MongoDBClient:
             result = await self.db[collection].update_many(nested_filter, {"$set": nested_update})
             return {
                 "matched_count": result.matched_count,
-                "modified_count": result.modified_count
+                "modified_count": result.modified_count,
+                "acknowledged": bool(result.acknowledged) 
             }
         except PyMongoError as e:
             raise e
@@ -77,6 +78,6 @@ class MongoDBClient:
         try:
             nested_filter = {f"document.{k}": v for k, v in filter_query.items()}
             result = await self.db[collection].delete_many(nested_filter)
-            return {"deleted_count": result.deleted_count}
+            return {"deleted_count": result.deleted_count,"acknowledged": bool(result.acknowledged)}
         except PyMongoError as e:
             raise e

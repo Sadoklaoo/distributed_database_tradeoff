@@ -1,5 +1,6 @@
 import os
 import uuid
+import time
 from cassandra.cluster import Cluster
 from cassandra.query import SimpleStatement
 from cassandra import InvalidRequest
@@ -21,18 +22,49 @@ def _convert_uuid_values(d: dict) -> dict:
 
 
 class CassandraClient:
-    def __init__(self, keyspace: str):
+    def __init__(self, keyspace: str, replication_factor: int = 3):
         self.cluster = Cluster(contact_points=CONTACT_POINTS)
         self.session = self.cluster.connect()
         self.keyspace = keyspace
+
+        # Wait for Cassandra nodes to be available
+        self._wait_for_cluster()
+
+        # Create keyspace if it doesn't exist
+        self._create_keyspace_if_not_exists(replication_factor)
         self.session.set_keyspace(keyspace)
 
+    def _wait_for_cluster(self, timeout: int = 60):
+        """Wait until at least one node is available."""
+        start = time.time()
+        while True:
+            try:
+                self.session.execute("SELECT now() FROM system.local")
+                print("✅ Cassandra cluster is reachable")
+                break
+            except Exception:
+                if time.time() - start > timeout:
+                    raise RuntimeError("❌ Cassandra cluster not reachable after timeout")
+                print("⏳ Waiting for Cassandra cluster...")
+                time.sleep(3)
+
+    def _create_keyspace_if_not_exists(self, replication_factor: int):
+        """Create the keyspace if it doesn't exist."""
+        query = f"""
+        CREATE KEYSPACE IF NOT EXISTS {self.keyspace}
+        WITH replication = {{ 'class': 'SimpleStrategy', 'replication_factor': '{replication_factor}' }}
+        """
+        try:
+            self.session.execute(query)
+            print(f"✅ Keyspace '{self.keyspace}' is ready")
+        except InvalidRequest as e:
+            raise RuntimeError(f"❌ Failed to create keyspace {self.keyspace}: {e}")
+
     # ---------------------------
-    # CRUD Operations
+    # CRUD Operations (unchanged)
     # ---------------------------
 
     def insert_document(self, table: str, document: dict):
-        # Ensure UUID type
         if "id" not in document:
             document["id"] = uuid.uuid4()
         else:
@@ -41,7 +73,6 @@ class CassandraClient:
         columns = ", ".join(document.keys())
         placeholders = ", ".join(["%s"] * len(document))
         query = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
-
         try:
             self.session.execute(query, tuple(document.values()))
             return document
@@ -61,9 +92,7 @@ class CassandraClient:
 
         stmt = SimpleStatement(query)
         rows = self.session.execute(stmt, values)
-
-        results = [dict(row._asdict()) for row in rows]
-        return results
+        return [dict(row._asdict()) for row in rows]
 
     def update_document(self, table: str, filters: dict, updates: dict):
         if not filters or not updates:
@@ -78,7 +107,6 @@ class CassandraClient:
 
         values = tuple(updates.values()) + tuple(filters.values())
         self.session.execute(query, values)
-
         return {"matched": len(filters), "modified": len(updates)}
 
     def delete_document(self, table: str, filters: dict):
@@ -86,18 +114,16 @@ class CassandraClient:
             raise ValueError("Filter is required for delete")
 
         filters = _convert_uuid_values(filters)
-
         where_clause = " AND ".join([f"{k}=%s" for k in filters.keys()])
         query = f"DELETE FROM {table} WHERE {where_clause}"
 
         values = tuple(filters.values())
         self.session.execute(query, values)
-
         return {"deleted": True, "filter": filters}
 
 
 # ---------------------------
-# Cluster Metadata
+# Cluster Metadata (unchanged)
 # ---------------------------
 
 def get_cluster_info():
