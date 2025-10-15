@@ -665,6 +665,13 @@ body {
   letter-spacing: 0.05em;
 }
 
+.status-count {
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.7;
+  margin-top: 0.25rem;
+}
+
 /* Charts Section */
 .charts-section {
   display: grid;
@@ -761,6 +768,7 @@ body {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+  table-layout: auto;
 }
 
 .table-full th {
@@ -773,13 +781,23 @@ body {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 
 .table-full td {
   padding: 1rem;
   border-bottom: 1px solid var(--border);
   color: var(--text);
+  white-space: nowrap;
 }
+
+/* Auto-adjust columns based on content */
+.table-full th:nth-child(1), .table-full td:nth-child(1) { width: auto; min-width: 120px; }
+.table-full th:nth-child(2), .table-full td:nth-child(2) { width: auto; min-width: 100px; }
+.table-full th:nth-child(3), .table-full td:nth-child(3) { width: auto; min-width: 120px; }
+.table-full th:nth-child(4), .table-full td:nth-child(4) { width: auto; min-width: 100px; }
+.table-full th:nth-child(5), .table-full td:nth-child(5) { width: auto; min-width: 140px; }
+.table-full th:nth-child(6), .table-full td:nth-child(6) { width: auto; min-width: 80px; }
 
 .table-full tr:hover {
   background: var(--bg-secondary);

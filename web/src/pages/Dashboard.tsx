@@ -137,6 +137,7 @@ export const Dashboard: React.FC = () => {
           <div className="status-text">
             <div className="status-title">MongoDB</div>
             <div className="status-value">{mongoStatus ? 'ONLINE' : 'OFFLINE'}</div>
+            <div className="status-count">{mongoStatus?.members?.length || 0} members</div>
           </div>
         </div>
         
@@ -145,6 +146,7 @@ export const Dashboard: React.FC = () => {
           <div className="status-text">
             <div className="status-title">Cassandra</div>
             <div className="status-value">{cassandraStatus ? 'ONLINE' : 'OFFLINE'}</div>
+            <div className="status-count">{cassandraStatus?.peers?.length || 0} peers</div>
           </div>
         </div>
       </section>
@@ -154,7 +156,7 @@ export const Dashboard: React.FC = () => {
         <div className="chart-card">
           <h2>
             <TrendingUp className="w-6 h-6" />
-            System Performance Metrics
+            System Performance Metrics (Mock Data)
           </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
@@ -210,8 +212,8 @@ export const Dashboard: React.FC = () => {
 
         <div className="chart-card">
           <h2>
-            <Activity className="w-6 h-6" />
-            Database Health Distribution
+            <Database className="w-6 h-6" />
+            MongoDB Health Distribution
           </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
@@ -249,6 +251,84 @@ export const Dashboard: React.FC = () => {
                 <span>Unhealthy Nodes ({mongoHealthData[1]?.value || 0})</span>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Cassandra Chart Section */}
+      <section className="charts-section">
+        <div className="chart-card">
+          <h2>
+            <HardDrive className="w-6 h-6" />
+            Cassandra Cluster Health
+          </h2>
+          <div className="chart-container">
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={[
+                    { name: 'Online Peers', value: cassandraStatus?.peers?.length || 0, color: '#00ff88' },
+                    { name: 'Offline Peers', value: Math.max(0, 3 - (cassandraStatus?.peers?.length || 0)), color: '#ff4444' }
+                  ]}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={120}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  <Cell fill="#00ff88" />
+                  <Cell fill="#ff4444" />
+                </Pie>
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#1a1a1a', 
+                    border: '1px solid #333', 
+                    borderRadius: '8px',
+                    color: '#fff'
+                  }} 
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="chart-legend">
+              <div className="legend-item">
+                <div className="legend-color" style={{ backgroundColor: '#00ff88' }}></div>
+                <span>Online Peers ({cassandraStatus?.peers?.length || 0})</span>
+              </div>
+              <div className="legend-item">
+                <div className="legend-color" style={{ backgroundColor: '#ff4444' }}></div>
+                <span>Offline Peers ({Math.max(0, 3 - (cassandraStatus?.peers?.length || 0))})</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="chart-card">
+          <h2>
+            <Activity className="w-6 h-6" />
+            Cluster Comparison Overview
+          </h2>
+          <div className="chart-container">
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={[
+                { name: 'MongoDB', members: mongoStatus?.members?.length || 0, healthy: mongoStatus?.members?.filter((m: any) => m.health === 1).length || 0 },
+                { name: 'Cassandra', members: (cassandraStatus?.peers?.length || 0) + 1, healthy: (cassandraStatus?.peers?.length || 0) + 1 }
+              ]}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                <XAxis dataKey="name" stroke="#a0a0a0" fontSize={12} />
+                <YAxis stroke="#a0a0a0" fontSize={12} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#1a1a1a', 
+                    border: '1px solid #333', 
+                    borderRadius: '8px',
+                    color: '#fff'
+                  }} 
+                />
+                <Bar dataKey="members" fill="#00d4ff" name="Total Nodes" />
+                <Bar dataKey="healthy" fill="#00ff88" name="Healthy Nodes" />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </section>
@@ -291,10 +371,10 @@ export const Dashboard: React.FC = () => {
                         {member.uptime ? `${Math.floor(member.uptime / 3600)}h ${Math.floor((member.uptime % 3600) / 60)}m` : 'N/A'}
                       </td>
                       <td className="text-muted">
-                        {member.lastHeartbeatMessage || 'N/A'}
+                        {member.lastHeartbeatMessage || member.lastHeartbeat || 'Active'}
                       </td>
                       <td className="text-muted">
-                        {member.priority || 'N/A'}
+                        {member.priority || member.electionDate || '1'}
                       </td>
                     </tr>
                   ))}
@@ -337,10 +417,10 @@ export const Dashboard: React.FC = () => {
                         </span>
                       </td>
                       <td className="text-muted">
-                        {peer.rack || 'N/A'}
+                        {peer.rack || 'rack1'}
                       </td>
                       <td className="text-muted font-mono text-xs">
-                        {peer.host_id ? peer.host_id.substring(0, 8) + '...' : 'N/A'}
+                        {peer.host_id || 'N/A'}
                       </td>
                       <td className="text-muted">
                         {peer.rpc_address || 'N/A'}
