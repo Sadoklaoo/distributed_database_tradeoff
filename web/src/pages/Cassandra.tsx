@@ -6,7 +6,11 @@ import {
   BarChart3, 
   Cpu,
   XCircle,
-  HardDrive
+  HardDrive,
+  Edit,
+  Trash2,
+  Save,
+  X
 } from 'lucide-react';
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
@@ -17,11 +21,13 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const Cassandra: React.FC = () => {
   const [cassandraTable, setCassandraTable] = useState('devices');
-  const [cassandraDocument, setCassandraDocument] = useState('{"id": "uuid-here", "name": "Device A", "status": "active", "type": "sensor"}');
-  const [cassandraFilter, setCassandraFilter] = useState('{"status": "active"}');
+  const [cassandraDocument, setCassandraDocument] = useState('{"id": "uuid-here", "name": "Device A", "status": "ACTIVE", "type": "sensor"}');
+  const [cassandraFilter, setCassandraFilter] = useState('{"status": "ACTIVE"}');
   const [cassandraResults, setCassandraResults] = useState<any[]>([]);
   const [cassandraError, setCassandraError] = useState<string | null>(null);
   const [cassandraLoading, setCassandraLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDocument, setEditDocument] = useState<string>('');
 
   const handleCassandraInsert = async () => {
     try {
@@ -60,17 +66,70 @@ export const Cassandra: React.FC = () => {
     }
   };
 
+  const handleCassandraUpdate = async (id: string) => {
+    try {
+      setCassandraError(null);
+      setCassandraLoading(true);
+      const doc = JSON.parse(editDocument);
+      const result = await fetchJson(`/api/cassandra/update?table=${cassandraTable}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          filter: { id: id }, 
+          update: doc 
+        })
+      });
+      console.log('Update result:', result);
+      setEditingId(null);
+      await handleCassandraFind();
+    } catch (e: any) {
+      setCassandraError(e.message);
+    } finally {
+      setCassandraLoading(false);
+    }
+  };
+
+  const handleCassandraDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this row?')) return;
+    
+    try {
+      setCassandraError(null);
+      setCassandraLoading(true);
+      const result = await fetchJson(`/api/cassandra/delete?table=${cassandraTable}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filter: { id: id } })
+      });
+      console.log('Delete result:', result);
+      await handleCassandraFind();
+    } catch (e: any) {
+      setCassandraError(e.message);
+    } finally {
+      setCassandraLoading(false);
+    }
+  };
+
+  const startEdit = (row: any) => {
+    setEditingId(row.id);
+    setEditDocument(JSON.stringify(row, null, 2));
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditDocument('');
+  };
+
   const getStatusClass = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'ok':
-      case 'online':
-      case 'up':
-      case 'active':
+    switch (status?.toUpperCase()) {
+      case 'OK':
+      case 'ONLINE':
+      case 'UP':
+      case 'ACTIVE':
         return 'online';
-      case 'error':
-      case 'offline':
-      case 'down':
-      case 'inactive':
+      case 'ERROR':
+      case 'OFFLINE':
+      case 'DOWN':
+      case 'INACTIVE':
         return 'offline';
       default:
         return 'warning';
@@ -178,20 +237,42 @@ export const Cassandra: React.FC = () => {
                     <th>Status</th>
                     <th>Type</th>
                     <th>Created</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {cassandraResults.map((row, index) => (
                     <tr key={index}>
-                      <td>{row.id || 'N/A'}</td>
-                      <td>{row.name || 'N/A'}</td>
+                      <td className="font-mono text-xs">{row.id ? row.id.substring(0, 8) + '...' : 'N/A'}</td>
+                      <td className="font-medium">{row.name || 'N/A'}</td>
                       <td>
                         <span className={`status ${getStatusClass(row.status || '')}`}>
-                          {row.status || 'N/A'}
+                          {row.status?.toUpperCase() || 'N/A'}
                         </span>
                       </td>
-                      <td>{row.type || 'N/A'}</td>
-                      <td>{new Date().toLocaleString()}</td>
+                      <td>
+                        <span className="badge">{row.type || 'N/A'}</span>
+                      </td>
+                      <td className="text-muted text-sm">{new Date().toLocaleString()}</td>
+                      <td>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => startEdit(row)}
+                            className="btn-icon btn-icon-edit"
+                            title="Edit row"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleCassandraDelete(row.id)}
+                            className="btn-icon btn-icon-delete"
+                            title="Delete row"
+                            disabled={cassandraLoading}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -199,6 +280,48 @@ export const Cassandra: React.FC = () => {
             </div>
           </div>
         </section>
+      )}
+
+      {/* Edit Modal */}
+      {editingId && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+              <h2>
+                <Edit className="w-6 h-6" />
+                Edit Row
+              </h2>
+              <button onClick={cancelEdit} className="btn-icon">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Row Data (JSON)</label>
+                <textarea 
+                  value={editDocument} 
+                  onChange={(e) => setEditDocument(e.target.value)}
+                  rows={8}
+                  className="font-mono"
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button onClick={cancelEdit} className="btn btn-secondary">
+                <X className="w-4 h-4" />
+                Cancel
+              </button>
+              <button 
+                onClick={() => handleCassandraUpdate(editingId)} 
+                className="btn"
+                disabled={cassandraLoading}
+              >
+                {cassandraLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {cassandraLoading ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {cassandraResults.length > 0 && (

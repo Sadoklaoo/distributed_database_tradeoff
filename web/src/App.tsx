@@ -4,6 +4,8 @@ import { Navigation } from './components/Navigation';
 import { Dashboard } from './pages/Dashboard';
 import { MongoDB } from './pages/MongoDB';
 import { Cassandra } from './pages/Cassandra';
+import { Performance } from './pages/Performance';
+import { FailureTesting } from './pages/FailureTesting';
 
 export const App: React.FC = () => {
   return (
@@ -14,6 +16,8 @@ export const App: React.FC = () => {
           <Route path="/" element={<Dashboard />} />
           <Route path="/mongodb" element={<MongoDB />} />
           <Route path="/cassandra" element={<Cassandra />} />
+          <Route path="/performance" element={<Performance />} />
+          <Route path="/failure-testing" element={<FailureTesting />} />
         </Routes>
       </main>
     </div>

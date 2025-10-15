@@ -6,7 +6,11 @@ import {
   BarChart3, 
   Cpu,
   XCircle,
-  Database
+  Database,
+  Edit,
+  Trash2,
+  Save,
+  X
 } from 'lucide-react';
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
@@ -17,11 +21,13 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const MongoDB: React.FC = () => {
   const [mongoCollection, setMongoCollection] = useState('devices');
-  const [mongoDocument, setMongoDocument] = useState('{"name": "Device A", "status": "active", "type": "sensor", "location": "Building A"}');
-  const [mongoFilter, setMongoFilter] = useState('{"status": "active"}');
+  const [mongoDocument, setMongoDocument] = useState('{"name": "Device A", "status": "ACTIVE", "type": "sensor", "location": "Building A"}');
+  const [mongoFilter, setMongoFilter] = useState('{"status": "ACTIVE"}');
   const [mongoResults, setMongoResults] = useState<any[]>([]);
   const [mongoError, setMongoError] = useState<string | null>(null);
   const [mongoLoading, setMongoLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDocument, setEditDocument] = useState<string>('');
 
   const handleMongoInsert = async () => {
     try {
@@ -60,17 +66,70 @@ export const MongoDB: React.FC = () => {
     }
   };
 
+  const handleMongoUpdate = async (id: string) => {
+    try {
+      setMongoError(null);
+      setMongoLoading(true);
+      const doc = JSON.parse(editDocument);
+      const result = await fetchJson(`/api/mongo/update?collection=${mongoCollection}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          filter: { _id: id }, 
+          update: doc 
+        })
+      });
+      console.log('Update result:', result);
+      setEditingId(null);
+      await handleMongoFind();
+    } catch (e: any) {
+      setMongoError(e.message);
+    } finally {
+      setMongoLoading(false);
+    }
+  };
+
+  const handleMongoDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this document?')) return;
+    
+    try {
+      setMongoError(null);
+      setMongoLoading(true);
+      const result = await fetchJson(`/api/mongo/delete?collection=${mongoCollection}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filter: { _id: id } })
+      });
+      console.log('Delete result:', result);
+      await handleMongoFind();
+    } catch (e: any) {
+      setMongoError(e.message);
+    } finally {
+      setMongoLoading(false);
+    }
+  };
+
+  const startEdit = (doc: any) => {
+    setEditingId(doc._id);
+    setEditDocument(JSON.stringify(doc.document, null, 2));
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditDocument('');
+  };
+
   const getStatusClass = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'ok':
-      case 'online':
-      case 'up':
-      case 'active':
+    switch (status?.toUpperCase()) {
+      case 'OK':
+      case 'ONLINE':
+      case 'UP':
+      case 'ACTIVE':
         return 'online';
-      case 'error':
-      case 'offline':
-      case 'down':
-      case 'inactive':
+      case 'ERROR':
+      case 'OFFLINE':
+      case 'DOWN':
+      case 'INACTIVE':
         return 'offline';
       default:
         return 'warning';
@@ -179,21 +238,43 @@ export const MongoDB: React.FC = () => {
                     <th>Type</th>
                     <th>Location</th>
                     <th>Created</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {mongoResults.map((doc, index) => (
                     <tr key={index}>
-                      <td>{doc._id || 'N/A'}</td>
-                      <td>{doc.document?.name || 'N/A'}</td>
+                      <td className="font-mono text-xs">{doc._id ? doc._id.substring(0, 8) + '...' : 'N/A'}</td>
+                      <td className="font-medium">{doc.document?.name || 'N/A'}</td>
                       <td>
                         <span className={`status ${getStatusClass(doc.document?.status || '')}`}>
-                          {doc.document?.status || 'N/A'}
+                          {doc.document?.status?.toUpperCase() || 'N/A'}
                         </span>
                       </td>
-                      <td>{doc.document?.type || 'N/A'}</td>
-                      <td>{doc.document?.location || 'N/A'}</td>
-                      <td>{new Date().toLocaleString()}</td>
+                      <td>
+                        <span className="badge">{doc.document?.type || 'N/A'}</span>
+                      </td>
+                      <td className="text-muted">{doc.document?.location || 'N/A'}</td>
+                      <td className="text-muted text-sm">{new Date().toLocaleString()}</td>
+                      <td>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => startEdit(doc)}
+                            className="btn-icon btn-icon-edit"
+                            title="Edit document"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleMongoDelete(doc._id)}
+                            className="btn-icon btn-icon-delete"
+                            title="Delete document"
+                            disabled={mongoLoading}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -201,6 +282,48 @@ export const MongoDB: React.FC = () => {
             </div>
           </div>
         </section>
+      )}
+
+      {/* Edit Modal */}
+      {editingId && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+              <h2>
+                <Edit className="w-6 h-6" />
+                Edit Document
+              </h2>
+              <button onClick={cancelEdit} className="btn-icon">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Document (JSON)</label>
+                <textarea 
+                  value={editDocument} 
+                  onChange={(e) => setEditDocument(e.target.value)}
+                  rows={8}
+                  className="font-mono"
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button onClick={cancelEdit} className="btn btn-secondary">
+                <X className="w-4 h-4" />
+                Cancel
+              </button>
+              <button 
+                onClick={() => handleMongoUpdate(editingId)} 
+                className="btn"
+                disabled={mongoLoading}
+              >
+                {mongoLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {mongoLoading ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {mongoResults.length > 0 && (

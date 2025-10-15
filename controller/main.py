@@ -3,7 +3,9 @@ import os
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app.routes.mongo_routes import router as mongo_router
-from app.routes.cassandra_routes import cassandra_router 
+from app.routes.cassandra_routes import cassandra_router
+from app.routes.performance_routes import router as performance_router
+from app.routes.failure_routes import router as failure_router 
 from app.mongo_client import MongoDBClient
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -36,6 +38,8 @@ app.add_middleware(
 # Include routes
 app.include_router(mongo_router, prefix="/api/mongo", tags=["MongoDB Operations"])
 app.include_router(cassandra_router, prefix="/api/cassandra", tags=["Cassandra Operations"])
+app.include_router(performance_router, prefix="/api/performance", tags=["Performance Testing"])
+app.include_router(failure_router, prefix="/api/failure", tags=["Failure Testing"])
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "message": "Controller API is running!"}

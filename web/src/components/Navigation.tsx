@@ -4,6 +4,8 @@ import {
   BarChart3, 
   Database, 
   HardDrive, 
+  Activity,
+  AlertTriangle,
   Menu, 
   X 
 } from 'lucide-react';
@@ -16,6 +18,8 @@ export const Navigation: React.FC = () => {
     { path: '/', label: 'Dashboard', icon: BarChart3 },
     { path: '/mongodb', label: 'MongoDB', icon: Database },
     { path: '/cassandra', label: 'Cassandra', icon: HardDrive },
+    { path: '/performance', label: 'Performance', icon: Activity },
+    { path: '/failure-testing', label: 'Failure Testing', icon: AlertTriangle },
   ];
 
   const isActive = (path: string) => {

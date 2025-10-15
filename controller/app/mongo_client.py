@@ -60,7 +60,12 @@ class MongoDBClient:
         """Updates nested 'document' fields."""
         await self.connect()
         try:
-            nested_filter = {f"document.{k}": v for k, v in filter_query.items()}
+            # Handle _id specially - it's at the top level, not in document
+            if "_id" in filter_query:
+                nested_filter = {"_id": filter_query["_id"]}
+            else:
+                nested_filter = {f"document.{k}": v for k, v in filter_query.items()}
+            
             nested_update = {f"document.{k}": v for k, v in update_query.items()}
 
             result = await self.db[collection].update_many(nested_filter, {"$set": nested_update})
@@ -76,7 +81,12 @@ class MongoDBClient:
         """Deletes documents by matching on nested 'document' fields."""
         await self.connect()
         try:
-            nested_filter = {f"document.{k}": v for k, v in filter_query.items()}
+            # Handle _id specially - it's at the top level, not in document
+            if "_id" in filter_query:
+                nested_filter = {"_id": filter_query["_id"]}
+            else:
+                nested_filter = {f"document.{k}": v for k, v in filter_query.items()}
+            
             result = await self.db[collection].delete_many(nested_filter)
             return {"deleted_count": result.deleted_count,"acknowledged": bool(result.acknowledged)}
         except PyMongoError as e:
