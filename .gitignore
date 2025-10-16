@@ -15,6 +15,7 @@ controller/.env
 frontend/node_modules/
 frontend/dist/
 frontend/build/
+node_modules/
 
 # -------------------
 # Docker
