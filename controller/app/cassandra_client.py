@@ -152,22 +152,54 @@ class CassandraClient:
                 return []
             raise
 
-    def update_document(self, table: str, filters: dict, updates: dict):
-        if not filters or not updates:
-            raise ValueError("Both filter and update must be provided")
+    def update_document(self, table: str, filters: dict, updates: dict) -> dict:
+        """Update documents in a Cassandra table that match the filters."""
+        try:
+            if not filters or not updates:
+                raise ValueError("Both filter and update must be provided")
 
-        self.ensure_connected()
-        filters = _convert_uuid_values(filters)
-        updates = _convert_uuid_values(updates)
+            # Remove primary key from updates if present
+            updates = {k: v for k, v in updates.items() if k != 'id'}
+            if not updates:
+                raise ValueError("No valid fields to update")
 
-        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
-        where_clause = " AND ".join([f"{k} = ?" for k in filters.keys()])
-        query = f"UPDATE {self.keyspace}.{table} SET {set_clause} WHERE {where_clause}"
+            self.ensure_connected()
+            
+            # Ensure table and columns exist
+            self._ensure_table_exists(table)
+            self._ensure_columns_exist(table, updates)
+            self._ensure_columns_exist(table, filters)
 
-        values = list(updates.values()) + list(filters.values())
-        prepared = self.session.prepare(query)
-        self.session.execute(prepared, values)
-        return len(updates)
+            # Convert UUID strings to UUID objects
+            filters = _convert_uuid_values(filters)
+            updates = _convert_uuid_values(updates)
+
+            # Build update clause
+            set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+            where_clause = " AND ".join([f"{k} = ?" for k in filters.keys()])
+            query = f"UPDATE {self.keyspace}.{table} SET {set_clause} WHERE {where_clause}"
+
+            # Prepare values in correct order
+            values = list(updates.values()) + list(filters.values())
+            
+            print(f"Update Query: {query}")
+            print(f"Update Values: {values}")
+
+            # Execute prepared statement
+            prepared = self.session.prepare(query)
+            self.session.execute(prepared, values)
+
+            # Return response matching UpdateResponse model
+            return {
+                "updated": True,
+                "fields_updated": len(updates),
+                "filter_used": {k: str(v) if isinstance(v, uuid.UUID) else v for k, v in filters.items()},
+                "updates_applied": {k: str(v) if isinstance(v, uuid.UUID) else v for k, v in updates.items()}
+            }
+
+        except Exception as exc:
+            print(f"❌ Cassandra update error: {exc}")
+            raise InvalidRequest(f"Update failed: {exc}") from exc
 
     def delete_document(self, table: str, filters: dict):
         try:

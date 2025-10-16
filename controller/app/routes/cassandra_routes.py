@@ -45,7 +45,14 @@ class InsertResponse(BaseModel):
     data: Dict[str, Any]
 
 class UpdateResponse(BaseModel):
-    updated: int
+    updated: bool
+    fields_updated: int
+    filter_used: Dict[str, Any]
+    updates_applied: Dict[str, Any]
+
+class UpdateRequest(BaseModel):
+    filters: Dict[str, Any]
+    updates: Dict[str, Any]
 
 class DeleteResponse(BaseModel):
     deleted: int
@@ -115,22 +122,22 @@ def find_documents(
         raise HTTPException(status_code=500, detail=str(e))
 
 @cassandra_router.put("/update", response_model=UpdateResponse)
-def update_document(
+async def update_document(
     table: str = Query(..., description="Cassandra table name"),
-    body: CassandraUpdateBody = Body(..., description="Filter and update instructions")
+    request: UpdateRequest = Body(
+        ...,
+        example={
+            "filters": {"id": "2e762622-80e5-4c4f-8bba-7e4bb42f1577"},
+            "updates": {"name": "Device B", "status": "ACTIVE"}
+        }
+    )
 ):
-    """
-    Update rows in a Cassandra table.
-
-    Example body:
-    {
-        "filter": {"id": "uuid-string"},
-        "update": {"status": "inactive"}
-    }
-    """
+    """Update a document in Cassandra table"""
     try:
-        result = get_client().update_document(table, body.filter, body.update)
-        return {"updated": result}
+        result = get_client().update_document(table, request.filters, request.updates)
+        return UpdateResponse(**result)
+    except InvalidRequest as e:
+        raise HTTPException(status_code=400, detail=f"Invalid request: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

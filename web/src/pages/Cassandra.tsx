@@ -66,19 +66,22 @@ export const Cassandra: React.FC = () => {
     }
   };
 
-  const handleCassandraUpdate = async (id: string) => {
+ const handleCassandraUpdate = async (id: string) => {
     try {
       setCassandraError(null);
       setCassandraLoading(true);
-      const doc = JSON.parse(editDocument);
+      const updates = JSON.parse(editDocument);
+      
+      // Match the backend's expected format
       const result = await fetchJson(`/api/cassandra/update?table=${cassandraTable}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          filter: { id: id }, 
-          update: doc 
+          filters: { id: id },  // Changed from filter to filters
+          updates: updates     // Changed from update to updates
         })
       });
+      
       console.log('Update result:', result);
       setEditingId(null);
       await handleCassandraFind();
