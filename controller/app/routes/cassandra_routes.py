@@ -22,7 +22,13 @@ class CassandraDocument(BaseModel):
     """
     Flexible model for Cassandra document (row)
     """
-    pass
+    id: str | None = None
+    name: str | None = None
+    status: str | None = None
+    type: str | None = None
+    
+    class Config:
+        extra = "allow"  # Allow additional fields
 
 class CassandraFindBody(BaseModel):
     filters: Dict[str, Any] = {}
@@ -71,11 +77,25 @@ def cassandra_health():
 @cassandra_router.post("/insert", response_model=InsertResponse)
 def insert_document(
     table: str = Query(..., description="Cassandra table name"),
-    document: CassandraDocument = Body(..., description="Document (row) to insert", example={"id": "uuid-string", "name": "Alice"})
+    document: CassandraDocument = Body(
+        ..., 
+        description="Document (row) to insert",
+        example={
+            "id": "2e762622-80e5-4c4f-8bba-7e4bb42f1577",
+            "name": "Device A",
+            "status": "ACTIVE",
+            "type": "sensor"
+        }
+    )
 ):
     """Insert a row into a Cassandra table"""
     try:
-        result = get_client().insert_document(table, document.model_dump(exclude_unset=False))
+        # Convert to dict and remove None values
+        doc_dict = {
+            k: v for k, v in document.model_dump(exclude_unset=True).items() 
+            if v is not None
+        }
+        result = get_client().insert_document(table, doc_dict)
         return {"inserted": True, "data": result}
     except InvalidRequest as e:
         raise HTTPException(status_code=400, detail=f"Invalid request: {e}")

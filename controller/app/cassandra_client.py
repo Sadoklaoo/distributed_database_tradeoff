@@ -76,33 +76,60 @@ class CassandraClient:
     def insert_document(self, table: str, document: dict):
         self.ensure_connected()
         try:
-            # Ensure id is a UUID
+            # Create a working copy of the document
             doc = document.copy()
+            
+            # Handle ID field
             if "id" not in doc:
                 doc["id"] = uuid.uuid4()
             elif isinstance(doc["id"], str):
-                doc["id"] = uuid.UUID(doc["id"])
+                try:
+                    doc["id"] = uuid.UUID(doc["id"])
+                except ValueError:
+                    doc["id"] = uuid.uuid4()
 
-            # Ensure table exists
+            # First ensure schema is ready
             self._ensure_table_exists(table)
-
-            # Only insert columns that exist in the table schema
+            self._ensure_columns_exist(table, doc)
+            
+            # Get existing columns
             existing_columns = self._existing_columns(table)
-            insert_columns = [c for c in ["id", "name", "status", "type"] if c in existing_columns]
-
-            values = tuple(doc.get(c, None) for c in insert_columns)
-            placeholders = ", ".join(["?"] * len(insert_columns))
-            query = f"INSERT INTO {self.keyspace}.{table} ({', '.join(insert_columns)}) VALUES ({placeholders})"
+            print(f"Existing columns: {existing_columns}")
+            print(f"Document to insert: {doc}")
+            # Create document with all fields
+            full_doc = {
+                "id": doc["id"],
+                "name": doc.get("name"),
+                "status": doc.get("status"),
+                "type": doc.get("type")
+            }
+            print(f"Full document for insertion: {full_doc}")
+            
+            # Build query
+            columns = list(full_doc.keys())
+            placeholders = ['?'] * len(columns)
+            query = (
+                f"INSERT INTO {self.keyspace}.{table} "
+                f"({', '.join(columns)}) VALUES ({', '.join(placeholders)})"
+            )
+            
+            # Prepare values maintaining column order
+            values = [full_doc[col] for col in columns]
+            
+            print(f"Insert Columns: {columns}")
+            print(f"Insert Query: {query}")
+            print(f"Insert Values: {values}")
+            
+            # Execute with prepared statement
             prepared = self.session.prepare(query)
             self.session.execute(prepared, values)
 
-            # Return normalized data
-            return {k: str(v) if isinstance(v, uuid.UUID) else v for k, v in doc.items()}
+            return {k: str(v) if isinstance(v, uuid.UUID) else v for k, v in full_doc.items()}
 
         except Exception as exc:
             print(f"❌ Cassandra insert error: {exc}")
             raise InvalidRequest(f"Insert failed: {exc}") from exc
-    
+
     def find_documents(self, table: str, filters: dict = None):
         self.ensure_connected()
         filters = _convert_uuid_values(filters or {})
@@ -168,11 +195,7 @@ class CassandraClient:
         self.ensure_connected()
         query = f"""
         CREATE TABLE IF NOT EXISTS {self.keyspace}.{table} (
-            id uuid PRIMARY KEY,
-            name text,
-            status text,
-            type text
-            
+            id uuid PRIMARY KEY
         )
         """
         self.session.execute(query)
@@ -190,7 +213,40 @@ class CassandraClient:
         self._column_cache[cache_key] = columns
         return columns
 
-    
+    def _ensure_columns_exist(self, table: str, document: dict):
+        """Ensure all document fields exist as columns in the table."""
+        # Get existing columns
+        existing = self._existing_columns(table)
+        
+        # Check each field in document
+        for key, value in document.items():
+            if key not in existing:
+                # Determine CQL type based on Python type
+                if isinstance(value, bool):
+                    ctype = "boolean"
+                elif isinstance(value, int):
+                    ctype = "int"
+                elif isinstance(value, float):
+                    ctype = "double"
+                elif isinstance(value, uuid.UUID):
+                    ctype = "uuid"
+                else:
+                    ctype = "text"
+                
+                try:
+                    # Add column if it doesn't exist
+                    query = f"ALTER TABLE {self.keyspace}.{table} ADD {key} {ctype}"
+                    self.session.execute(query)
+                    time.sleep(1)  # Give time for schema propagation
+                    
+                    # Update cache
+                    cache_key = f"{self.keyspace}.{table}"
+                    if cache_key in self._column_cache:
+                        self._column_cache[cache_key].add(key)
+                except InvalidRequest as e:
+                    # Column might have been added by another process
+                    if "already exists" not in str(e).lower():
+                        raise
 
                 
 def get_cluster_info():
