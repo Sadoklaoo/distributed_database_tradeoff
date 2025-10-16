@@ -228,22 +228,21 @@ export const Cassandra: React.FC = () => {
               <BarChart3 className="w-6 h-6" />
               Query Results ({cassandraResults.length} rows)
             </h2>
-            <div className="table-container">
-              <table className="table">
+            <div className="table-container-full">
+              <table className="table-full">
                 <thead>
                   <tr>
                     <th>ID</th>
                     <th>Name</th>
                     <th>Status</th>
                     <th>Type</th>
-                    <th>Created</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {cassandraResults.map((row, index) => (
                     <tr key={index}>
-                      <td className="font-mono text-xs">{row.id ? row.id.substring(0, 8) + '...' : 'N/A'}</td>
+                      <td className="font-mono text-xs">{row.id || 'N/A'}</td>
                       <td className="font-medium">{row.name || 'N/A'}</td>
                       <td>
                         <span className={`status ${getStatusClass(row.status || '')}`}>
@@ -253,7 +252,6 @@ export const Cassandra: React.FC = () => {
                       <td>
                         <span className="badge">{row.type || 'N/A'}</span>
                       </td>
-                      <td className="text-muted text-sm">{new Date().toLocaleString()}</td>
                       <td>
                         <div className="flex gap-2">
                           <button

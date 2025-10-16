@@ -14,34 +14,31 @@ def _convert_uuid_values(d: dict) -> dict:
     for k, v in d.items():
         if isinstance(v, str):
             try:
-                v = uuid.UUID(v)
+                new_d[k] = uuid.UUID(v)
             except ValueError:
-                pass
-        new_d[k] = v
+                new_d[k] = v
+        else:
+            new_d[k] = v
     return new_d
-
 
 class CassandraClient:
     def __init__(self, keyspace: str, replication_factor: int = 3):
-        # Defer connecting at import/startup; connect lazily on first use
         self.cluster = Cluster(contact_points=CONTACT_POINTS)
         self.session = None
         self.keyspace = keyspace
         self.replication_factor = replication_factor
+        self._column_cache = {}
 
     def ensure_connected(self):
         if self.session is not None:
             return
-        # Attempt to connect with retries so API can start before Cassandra
         start = time.time()
         timeout = 90
         last_error = None
         while time.time() - start < timeout:
             try:
                 self.session = self.cluster.connect()
-                # Wait for cluster ready
                 self._wait_for_cluster()
-                # Ensure keyspace
                 self._create_keyspace_if_not_exists(self.replication_factor)
                 self.session.set_keyspace(self.keyspace)
                 return
@@ -51,7 +48,6 @@ class CassandraClient:
         raise RuntimeError(f"Cassandra connect failed after retries: {last_error}")
 
     def _wait_for_cluster(self, timeout: int = 60):
-        """Wait until at least one node is available."""
         start = time.time()
         while True:
             try:
@@ -67,87 +63,136 @@ class CassandraClient:
                 time.sleep(3)
 
     def _create_keyspace_if_not_exists(self, replication_factor: int):
-        """Create the keyspace if it doesn't exist."""
         query = f"""
         CREATE KEYSPACE IF NOT EXISTS {self.keyspace}
-        WITH replication = {{ 'class': 'SimpleStrategy', 'replication_factor': '{replication_factor}' }}
+        WITH replication = {{'class': 'SimpleStrategy', 'replication_factor': {replication_factor}}}
         """
         try:
             self.session.execute(query)
             print(f"✅ Keyspace '{self.keyspace}' is ready")
         except InvalidRequest as e:
             raise RuntimeError(f"❌ Failed to create keyspace {self.keyspace}: {e}")
-
-    # ---------------------------
-    # CRUD Operations (unchanged)
-    # ---------------------------
-
+        
     def insert_document(self, table: str, document: dict):
         self.ensure_connected()
-        if "id" not in document:
-            document["id"] = uuid.uuid4()
-        else:
-            document = _convert_uuid_values(document)
-
-        columns = ", ".join(document.keys())
-        placeholders = ", ".join(["%s"] * len(document))
-        query = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
         try:
-            self.session.execute(query, tuple(document.values()))
-            return document
-        except InvalidRequest as e:
-            raise e
+            # Ensure id is a UUID
+            doc = document.copy()
+            if "id" not in doc:
+                doc["id"] = uuid.uuid4()
+            elif isinstance(doc["id"], str):
+                doc["id"] = uuid.UUID(doc["id"])
 
+            # Ensure table exists
+            self._ensure_table_exists(table)
+
+            # Only insert columns that exist in the table schema
+            existing_columns = self._existing_columns(table)
+            insert_columns = [c for c in ["id", "name", "status", "type"] if c in existing_columns]
+
+            values = tuple(doc.get(c, None) for c in insert_columns)
+            placeholders = ", ".join(["?"] * len(insert_columns))
+            query = f"INSERT INTO {self.keyspace}.{table} ({', '.join(insert_columns)}) VALUES ({placeholders})"
+            prepared = self.session.prepare(query)
+            self.session.execute(prepared, values)
+
+            # Return normalized data
+            return {k: str(v) if isinstance(v, uuid.UUID) else v for k, v in doc.items()}
+
+        except Exception as exc:
+            print(f"❌ Cassandra insert error: {exc}")
+            raise InvalidRequest(f"Insert failed: {exc}") from exc
+    
     def find_documents(self, table: str, filters: dict = None):
+        self.ensure_connected()
         filters = _convert_uuid_values(filters or {})
 
         if filters:
-            conditions = " AND ".join([f"{k}=%s" for k in filters.keys()])
-            query = f"SELECT * FROM {table} WHERE {conditions} ALLOW FILTERING"
-            values = tuple(filters.values())
+            conditions = " AND ".join([f"{k} = ?" for k in filters.keys()])
+            query = f"SELECT * FROM {self.keyspace}.{table} WHERE {conditions} ALLOW FILTERING"
+            values = list(filters.values())
         else:
-            query = f"SELECT * FROM {table}"
-            values = ()
+            query = f"SELECT * FROM {self.keyspace}.{table}"
+            values = []
 
-        stmt = SimpleStatement(query)
-        self.ensure_connected()
-        rows = self.session.execute(stmt, values)
-        return [dict(row._asdict()) for row in rows]
+        try:
+            prepared = self.session.prepare(query)
+            rows = self.session.execute(prepared, values)
+            return [dict(row._asdict()) for row in rows]
+        except InvalidRequest as e:
+            if "unconfigured table" in str(e).lower():
+                self._ensure_table_exists(table)
+                return []
+            raise
 
     def update_document(self, table: str, filters: dict, updates: dict):
         if not filters or not updates:
             raise ValueError("Both filter and update must be provided")
 
+        self.ensure_connected()
         filters = _convert_uuid_values(filters)
         updates = _convert_uuid_values(updates)
 
-        set_clause = ", ".join([f"{k}=%s" for k in updates.keys()])
-        where_clause = " AND ".join([f"{k}=%s" for k in filters.keys()])
-        query = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        where_clause = " AND ".join([f"{k} = ?" for k in filters.keys()])
+        query = f"UPDATE {self.keyspace}.{table} SET {set_clause} WHERE {where_clause}"
 
-        self.ensure_connected()
-        values = tuple(updates.values()) + tuple(filters.values())
-        self.session.execute(query, values)
-        return {"matched": len(filters), "modified": len(updates)}
+        values = list(updates.values()) + list(filters.values())
+        prepared = self.session.prepare(query)
+        self.session.execute(prepared, values)
+        return len(updates)
 
     def delete_document(self, table: str, filters: dict):
-        if not filters:
-            raise ValueError("Filter is required for delete")
+        try:
+            if not filters:
+                raise ValueError("Filter is required for delete")
 
-        filters = _convert_uuid_values(filters)
-        where_clause = " AND ".join([f"{k}=%s" for k in filters.keys()])
-        query = f"DELETE FROM {table} WHERE {where_clause}"
+            self.ensure_connected()
+            filters = _convert_uuid_values(filters)
+            
+            # Ensure table exists
+            self._ensure_table_exists(table)
+            
+            where_clause = " AND ".join([f"{k} = ?" for k in filters.keys()])
+            query = f"DELETE FROM {self.keyspace}.{table} WHERE {where_clause}"
+            
+            values = list(filters.values())
+            prepared = self.session.prepare(query)
+            self.session.execute(prepared, values)
+            return 1
+        except Exception as e:
+            print(f"Delete error: {str(e)}")
+            raise InvalidRequest(f"Delete failed: {str(e)}")
 
+    def _ensure_table_exists(self, table: str):
         self.ensure_connected()
-        values = tuple(filters.values())
-        self.session.execute(query, values)
-        return {"deleted": True, "filter": filters}
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {self.keyspace}.{table} (
+            id uuid PRIMARY KEY,
+            name text,
+            status text,
+            type text
+            
+        )
+        """
+        self.session.execute(query)
+        time.sleep(1)  # Give time for table creation to propagate
 
+    def _existing_columns(self, table: str):
+        cache_key = f"{self.keyspace}.{table}"
+        if cache_key in self._column_cache:
+            return self._column_cache[cache_key]
 
-# ---------------------------
-# Cluster Metadata (unchanged)
-# ---------------------------
+        rows = self.session.execute(
+                f"SELECT column_name FROM system_schema.columns WHERE keyspace_name = '{self.keyspace}' AND table_name = '{table}'"
+        )
+        columns = {row.column_name for row in rows}
+        self._column_cache[cache_key] = columns
+        return columns
 
+    
+
+                
 def get_cluster_info():
     cluster = Cluster(contact_points=CONTACT_POINTS)
     session = cluster.connect()
@@ -167,14 +212,12 @@ def get_cluster_info():
         "SELECT peer, data_center, host_id, rpc_address FROM system.peers"
     )
     for r in rows:
-        peers.append(
-            {
-                "peer": str(getattr(r, "peer", None)),
-                "data_center": getattr(r, "data_center", None),
-                "host_id": str(getattr(r, "host_id", None)),
-                "rpc_address": str(getattr(r, "rpc_address", None)),
-            }
-        )
+        peers.append({
+            "peer": str(getattr(r, "peer", None)),
+            "data_center": getattr(r, "data_center", None),
+            "host_id": str(getattr(r, "host_id", None)),
+            "rpc_address": str(getattr(r, "rpc_address", None)),
+        })
 
     cluster.shutdown()
     return {"local": local, "peers": peers}

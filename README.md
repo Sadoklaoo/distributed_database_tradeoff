@@ -1,111 +1,160 @@
-# Distributed Databases Tradeoff
+# Distributed Databases Tradeoff Analysis
 
-This project explores tradeoffs in distributed databases using Cassandra and MongoDB. It uses Docker Compose to orchestrate multi-node clusters for both databases, with a React frontend dashboard and Python FastAPI controller exposing REST APIs for cluster health and database operations.
+A comparative analysis system for distributed databases using Cassandra and MongoDB, with a React frontend for visualization and a FastAPI backend for database operations.
 
 ## Architecture
 
-- **MongoDB**: 3-node replica set (rs0) with automatic failover
-- **Cassandra**: 3-node cluster (TestCluster) with dc1/rack1 topology
-- **Controller**: FastAPI backend with async MongoDB and Cassandra clients
-- **Frontend**: React + TypeScript dashboard with Nginx reverse proxy
+### Database Clusters
+- **MongoDB**: 3-node replica set (rs0)
+  - Automatic failover
+  - Ports: 27017-27019
+  - Initialized via `scripts/rs-init.js`
 
-## Quickstart
+- **Cassandra**: 3-node cluster (TestCluster)
+  - Single DC (dc1) / Single Rack (rack1)
+  - Port: 9042
+  - SimpleStrategy replication
 
-1. **Start all services:**
-   ```bash
-   docker compose up -d --build
-   ```
+### API Layer (FastAPI)
+- REST endpoints for both databases
+- Async MongoDB operations
+- Cassandra operations with schema management
+- Swagger UI documentation
 
-2. **Access the dashboard:**
-   - Frontend: http://localhost:5173
-   - API docs: http://localhost:8000/docs
+### Frontend (React)
+- Dashboard for cluster monitoring
+- Database operation interface
+- Served via Nginx
 
-3. **Verify cluster health:**
-   ```bash
-   # Check Cassandra ring
-   docker compose exec cassandra1 nodetool status
-   
-   # Check MongoDB replica set
-   docker compose exec mongo1 mongosh --eval "rs.status()"
-   ```
+## Project Structure
+```
+distributed_database_tradeoff/
+├── controller/                # FastAPI backend
+│   ├── app/
+│   │   ├── routes/
+│   │   │   ├── mongo_routes.py
+│   │   │   ├── cassandra_routes.py
+│   │   │   ├── performance_routes.py
+│   │   │   └── failure_routes.py
+│   │   ├── mongo_client.py
+│   │   └── cassandra_client.py
+│   ├── main.py
+│   └── Dockerfile
+├── web/                      # React frontend
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   └── App.tsx
+│   ├── Dockerfile
+│   └── nginx.conf
+├── scripts/                  # Initialization scripts
+│   └── rs-init.js           # MongoDB replica set init
+├── data/                    # Persisted data (gitignored)
+│   ├── mongo1/
+│   ├── mongo2/
+│   ├── mongo3/
+│   ├── cassandra1/
+│   ├── cassandra2/
+│   └── cassandra3/
+└── docker-compose.yml
+```
+
+## Quick Start
+
+1. Start all services:
+```bash
+docker compose up -d --build
+```
+
+2. Access the applications:
+- Frontend Dashboard: http://localhost:5173
+- API Documentation: http://localhost:8000/docs
+- API Health Check: http://localhost:8000/api/health
+
+3. Verify cluster status:
+```bash
+# MongoDB replica set
+docker compose exec mongo1 mongosh --eval "rs.status()"
+
+# Cassandra ring
+docker compose exec cassandra1 nodetool status
+```
 
 ## API Endpoints
 
 ### Health & Status
-- `GET /api/health` – Controller health check
-- `GET /api/mongo/ping` – MongoDB ping
-- `GET /api/mongo/status` – MongoDB replica set status
-- `GET /api/cassandra/status` – Cassandra cluster info
-- `GET /api/cassandra/health` – Cassandra health check
+```http
+GET /api/health
+GET /api/mongo/status
+GET /api/cassandra/status
+```
 
-### MongoDB CRUD
-- `POST /api/mongo/insert?collection={name}` – Insert document
-- `POST /api/mongo/find?collection={name}` – Find documents
-- `PUT /api/mongo/update?collection={name}` – Update documents
-- `DELETE /api/mongo/delete?collection={name}` – Delete documents
+### MongoDB Operations
+```http
+POST /api/mongo/insert?collection={name}
+POST /api/mongo/find?collection={name}
+PUT /api/mongo/update?collection={name}
+DELETE /api/mongo/delete?collection={name}
+```
 
-### Cassandra CRUD
-- `POST /api/cassandra/insert?table={name}` – Insert row
-- `POST /api/cassandra/find?table={name}` – Find rows
-- `PUT /api/cassandra/update?table={name}` – Update rows
-- `DELETE /api/cassandra/delete?table={name}` – Delete rows
-
-## Frontend Features
-
-The React dashboard provides:
-- Real-time cluster health monitoring
-- MongoDB document insert/find interface
-- JSON response viewer for all API calls
-- Responsive design with dark theme
+### Cassandra Operations
+```http
+POST /api/cassandra/insert?table={name}
+POST /api/cassandra/find?table={name}
+PUT /api/cassandra/update?table={name}
+DELETE /api/cassandra/delete?table={name}
+```
 
 ## Development
 
-### Local Development
+### Local Backend Development
 ```bash
-# Backend only
-docker compose up -d controller mongo1 mongo2 mongo3 cassandra1 cassandra2 cassandra3
+# Start databases only
+docker compose up -d mongo1 mongo2 mongo3 cassandra1 cassandra2 cassandra3
 
-# Frontend development server
+# Install dependencies
+cd controller
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+
+# Run FastAPI with hot reload
+uvicorn main:app --reload
+```
+
+### Local Frontend Development
+```bash
 cd web
 npm install
 npm run dev
 ```
 
-### Production Build
-```bash
-# Build and run all services
-docker compose up -d --build
-```
-
-## Project Structure
-
-```
-├── controller/           # FastAPI backend
-│   ├── app/
-│   │   ├── routes/      # API endpoints
-│   │   ├── mongo_client.py
-│   │   └── cassandra_client.py
-│   ├── main.py
-│   └── Dockerfile
-├── web/                 # React frontend
-│   ├── src/
-│   ├── Dockerfile
-│   └── nginx.conf
-├── data/               # Database volumes
-│   ├── mongo1/ mongo2/ mongo3/
-│   └── cassandra1/ cassandra2/ cassandra3/
-├── scripts/
-│   └── rs-init.js      # MongoDB replica set init
-└── docker-compose.yml
-```
-
 ## Environment Variables
 
-- `MONGO_URI` – MongoDB connection string
-- `MONGO_DB` – MongoDB database name
-- `CASSANDRA_KEYSPACE` – Cassandra keyspace
-- `CASSANDRA_CONTACT_POINTS` – Cassandra seed nodes
+### Controller
+```env
+MONGO_URI=mongodb://mongo1:27017,mongo2:27017,mongo3:27017/testDB?replicaSet=rs0
+MONGO_DB=testDB
+CASSANDRA_KEYSPACE=testkeyspace
+CASSANDRA_CONTACT_POINTS=cassandra1,cassandra2,cassandra3
+```
+
+### Frontend
+```env
+VITE_API_BASE=/api
+```
+
+## Future Improvements
+
+1. Add Cassandra initialization CQL scripts
+2. Implement comprehensive test suite
+   - Unit tests for clients
+   - Integration tests for API
+   - Performance benchmarks
+3. Add monitoring and metrics collection
+4. Implement failure simulation endpoints
+5. Add database comparison visualizations
 
 ## License
 
-MIT 
+MIT

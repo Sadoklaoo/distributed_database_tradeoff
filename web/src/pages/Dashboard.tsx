@@ -187,22 +187,31 @@ export const Dashboard: React.FC = () => {
       const nodeName = `mongo${index + 1}`;
       const containerHours = containerUptimes?.[nodeName]?.hours;
       if (typeof containerHours === 'number' && containerHours > 0) {
-        return Math.floor(containerHours);
+        return Math.floor(containerHours * 3600); // store seconds
       }
-      return member.uptime ? Math.floor(member.uptime / 3600) : 0;
+      return member.uptime ? Math.floor(member.uptime) : 0; // member.uptime already in seconds
     })(),
     state: member.state === 1 ? 'Primary' : member.state === 2 ? 'Secondary' : 'Other'
   })) || [];
-  const maxUptime = rawReplicaSetData.reduce((max: number, d: any) => Math.max(max, d.uptime || 0), 0);
+  const maxUptimeSeconds = rawReplicaSetData.reduce((max: number, d: any) => Math.max(max, d.uptime || 0), 0);
   // Consider any node reporting uptime more than 4 hours lower than the max as stale/outlier and normalize to max
   const OUTLIER_THRESHOLD_HOURS = 4;
   const replicaSetData = rawReplicaSetData.map((d: any) => {
-    const isOutlier = (maxUptime - (d.uptime || 0)) > OUTLIER_THRESHOLD_HOURS;
+    const isOutlier = ((maxUptimeSeconds - (d.uptime || 0)) > OUTLIER_THRESHOLD_HOURS * 3600);
     return {
       ...d,
-      uptime: isOutlier ? maxUptime : (d.uptime || maxUptime)
+      uptime: isOutlier ? maxUptimeSeconds : (d.uptime || maxUptimeSeconds)
     };
   });
+
+  // Choose unit based on cluster uptime
+  const useMinutes = maxUptimeSeconds < 3600; // less than 1 hour
+  const uptimeUnitLabel = useMinutes ? 'min' : 'h';
+  const uptimeYAxisMax = useMinutes ? Math.ceil((maxUptimeSeconds || 0) / 60) : Math.ceil((maxUptimeSeconds || 0) / 3600);
+  const replicaSetDisplayData = replicaSetData.map((d: any) => ({
+    name: d.name,
+    uptimeDisplay: useMinutes ? Math.floor((d.uptime || 0) / 60) : Math.floor((d.uptime || 0) / 3600)
+  }));
 
   // Real cluster performance data
   const clusterPerformanceData = [
@@ -405,7 +414,7 @@ export const Dashboard: React.FC = () => {
           </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={replicaSetData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+              <AreaChart data={replicaSetDisplayData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorUptime" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#00d4ff" stopOpacity={0.8}/>
@@ -414,12 +423,12 @@ export const Dashboard: React.FC = () => {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="name" stroke="#a0a0a0" fontSize={12} />
-                <YAxis stroke="#a0a0a0" fontSize={12} />
+                <YAxis stroke="#a0a0a0" fontSize={12} domain={[0, uptimeYAxisMax || 'auto']} />
                 <Tooltip 
                   contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff' }}
-                  formatter={(value: any) => [`${value}h`, 'Uptime']}
+                  formatter={(value: any) => [`${value}${uptimeUnitLabel}`, 'Uptime']}
                 />
-                <Area type="monotone" dataKey="uptime" stroke="#00d4ff" fillOpacity={1} fill="url(#colorUptime)" />
+                <Area type="monotone" dataKey="uptimeDisplay" stroke="#00d4ff" fillOpacity={1} fill="url(#colorUptime)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>

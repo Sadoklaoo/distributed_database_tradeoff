@@ -75,7 +75,7 @@ def insert_document(
 ):
     """Insert a row into a Cassandra table"""
     try:
-        result = get_client().insert_document(table, document.model_dump())
+        result = get_client().insert_document(table, document.model_dump(exclude_unset=False))
         return {"inserted": True, "data": result}
     except InvalidRequest as e:
         raise HTTPException(status_code=400, detail=f"Invalid request: {e}")

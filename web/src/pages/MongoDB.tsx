@@ -243,7 +243,7 @@ export const MongoDB: React.FC = () => {
                 <tbody>
                   {mongoResults.map((doc, index) => (
                     <tr key={index}>
-                      <td className="font-mono text-xs">{doc._id ? doc._id.substring(0, 8) + '...' : 'N/A'}</td>
+                      <td className="font-mono text-xs">{doc._id || 'N/A'}</td>
                       <td className="font-medium">{doc.document?.name || 'N/A'}</td>
                       <td>
                         <span className={`status ${getStatusClass(doc.document?.status || '')}`}>
