@@ -1,5 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import PyMongoError
+from bson import ObjectId
 
 class MongoDBClient:
     def __init__(self, uri: str, db_name: str):
@@ -62,7 +63,9 @@ class MongoDBClient:
         try:
             # Handle _id specially - it's at the top level, not in document
             if "_id" in filter_query:
-                nested_filter = {"_id": filter_query["_id"]}
+                # Accept either ObjectId or string and normalize
+                raw_id = filter_query["_id"]
+                nested_filter = {"_id": ObjectId(raw_id) if isinstance(raw_id, str) else raw_id}
             else:
                 nested_filter = {f"document.{k}": v for k, v in filter_query.items()}
             
@@ -83,7 +86,8 @@ class MongoDBClient:
         try:
             # Handle _id specially - it's at the top level, not in document
             if "_id" in filter_query:
-                nested_filter = {"_id": filter_query["_id"]}
+                raw_id = filter_query["_id"]
+                nested_filter = {"_id": ObjectId(raw_id) if isinstance(raw_id, str) else raw_id}
             else:
                 nested_filter = {f"document.{k}": v for k, v in filter_query.items()}
             

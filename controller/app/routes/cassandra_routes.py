@@ -7,7 +7,13 @@ import os
 
 cassandra_router = APIRouter()
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "testkeyspace")
-client = CassandraClient(keyspace=CASSANDRA_KEYSPACE)
+client: CassandraClient | None = None
+
+def get_client() -> CassandraClient:
+    global client
+    if client is None:
+        client = CassandraClient(keyspace=CASSANDRA_KEYSPACE)
+    return client
 
 # ---------------------------
 # Pydantic Models
@@ -69,7 +75,7 @@ def insert_document(
 ):
     """Insert a row into a Cassandra table"""
     try:
-        result = client.insert_document(table, document.model_dump())
+        result = get_client().insert_document(table, document.model_dump())
         return {"inserted": True, "data": result}
     except InvalidRequest as e:
         raise HTTPException(status_code=400, detail=f"Invalid request: {e}")
@@ -83,7 +89,7 @@ def find_documents(
 ):
     """Find rows in a Cassandra table"""
     try:
-        results = client.find_documents(table, body.filters)
+        results = get_client().find_documents(table, body.filters)
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -103,7 +109,7 @@ def update_document(
     }
     """
     try:
-        result = client.update_document(table, body.filter, body.update)
+        result = get_client().update_document(table, body.filter, body.update)
         return {"updated": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -122,7 +128,7 @@ def delete_document(
     }
     """
     try:
-        result = client.delete_document(table, body.filter)
+        result = get_client().delete_document(table, body.filter)
         return {"deleted": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

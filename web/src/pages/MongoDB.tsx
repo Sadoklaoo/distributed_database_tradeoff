@@ -228,8 +228,8 @@ export const MongoDB: React.FC = () => {
               <BarChart3 className="w-6 h-6" />
               Query Results ({mongoResults.length} documents)
             </h2>
-            <div className="table-container">
-              <table className="table">
+            <div className="table-container-full">
+              <table className="table-full">
                 <thead>
                   <tr>
                     <th>ID</th>
@@ -237,7 +237,6 @@ export const MongoDB: React.FC = () => {
                     <th>Status</th>
                     <th>Type</th>
                     <th>Location</th>
-                    <th>Created</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -255,7 +254,6 @@ export const MongoDB: React.FC = () => {
                         <span className="badge">{doc.document?.type || 'N/A'}</span>
                       </td>
                       <td className="text-muted">{doc.document?.location || 'N/A'}</td>
-                      <td className="text-muted text-sm">{new Date().toLocaleString()}</td>
                       <td>
                         <div className="flex gap-2">
                           <button

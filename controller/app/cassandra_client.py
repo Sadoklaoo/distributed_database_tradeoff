@@ -23,22 +23,40 @@ def _convert_uuid_values(d: dict) -> dict:
 
 class CassandraClient:
     def __init__(self, keyspace: str, replication_factor: int = 3):
+        # Defer connecting at import/startup; connect lazily on first use
         self.cluster = Cluster(contact_points=CONTACT_POINTS)
-        self.session = self.cluster.connect()
+        self.session = None
         self.keyspace = keyspace
+        self.replication_factor = replication_factor
 
-        # Wait for Cassandra nodes to be available
-        self._wait_for_cluster()
-
-        # Create keyspace if it doesn't exist
-        self._create_keyspace_if_not_exists(replication_factor)
-        self.session.set_keyspace(keyspace)
+    def ensure_connected(self):
+        if self.session is not None:
+            return
+        # Attempt to connect with retries so API can start before Cassandra
+        start = time.time()
+        timeout = 90
+        last_error = None
+        while time.time() - start < timeout:
+            try:
+                self.session = self.cluster.connect()
+                # Wait for cluster ready
+                self._wait_for_cluster()
+                # Ensure keyspace
+                self._create_keyspace_if_not_exists(self.replication_factor)
+                self.session.set_keyspace(self.keyspace)
+                return
+            except Exception as e:
+                last_error = e
+                time.sleep(3)
+        raise RuntimeError(f"Cassandra connect failed after retries: {last_error}")
 
     def _wait_for_cluster(self, timeout: int = 60):
         """Wait until at least one node is available."""
         start = time.time()
         while True:
             try:
+                if self.session is None:
+                    raise RuntimeError("Session not initialized")
                 self.session.execute("SELECT now() FROM system.local")
                 print("✅ Cassandra cluster is reachable")
                 break
@@ -65,6 +83,7 @@ class CassandraClient:
     # ---------------------------
 
     def insert_document(self, table: str, document: dict):
+        self.ensure_connected()
         if "id" not in document:
             document["id"] = uuid.uuid4()
         else:
@@ -91,6 +110,7 @@ class CassandraClient:
             values = ()
 
         stmt = SimpleStatement(query)
+        self.ensure_connected()
         rows = self.session.execute(stmt, values)
         return [dict(row._asdict()) for row in rows]
 
@@ -105,6 +125,7 @@ class CassandraClient:
         where_clause = " AND ".join([f"{k}=%s" for k in filters.keys()])
         query = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
 
+        self.ensure_connected()
         values = tuple(updates.values()) + tuple(filters.values())
         self.session.execute(query, values)
         return {"matched": len(filters), "modified": len(updates)}
@@ -117,6 +138,7 @@ class CassandraClient:
         where_clause = " AND ".join([f"{k}=%s" for k in filters.keys()])
         query = f"DELETE FROM {table} WHERE {where_clause}"
 
+        self.ensure_connected()
         values = tuple(filters.values())
         self.session.execute(query, values)
         return {"deleted": True, "filter": filters}

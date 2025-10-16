@@ -2,9 +2,13 @@ import asyncio
 import time
 import subprocess
 from typing import Dict, List, Any
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel
-import docker
+try:
+    import docker  # type: ignore
+except Exception:
+    docker = None  # type: ignore
 import random
 
 router = APIRouter()
@@ -29,6 +33,8 @@ class DockerFailureSimulator:
     def _get_docker_client(self):
         """Lazy initialization of Docker client"""
         if self.client is None:
+            if docker is None:
+                raise HTTPException(status_code=500, detail="Docker SDK not available in this environment.")
             try:
                 self.client = docker.from_env()
             except Exception as e:
@@ -189,6 +195,31 @@ class DockerFailureSimulator:
         except:
             return 0
 
+    def get_container_uptimes(self, container_names: List[str]) -> Dict[str, Any]:
+        """Return uptime info for the given container names in hours and seconds."""
+        client = self._get_docker_client()
+        uptimes: Dict[str, Any] = {}
+        now = datetime.now(timezone.utc)
+        for name in container_names:
+            try:
+                c = client.containers.get(name)
+                started_at_str = c.attrs.get("State", {}).get("StartedAt")
+                if started_at_str:
+                    # Normalize RFC3339/ISO string and compute uptime
+                    started = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
+                    seconds = max(0, int((now - started).total_seconds()))
+                    hours = round(seconds / 3600, 2)
+                    uptimes[name] = {
+                        "seconds": seconds,
+                        "hours": hours,
+                        "status": c.status
+                    }
+                else:
+                    uptimes[name] = {"seconds": 0, "hours": 0, "status": c.status}
+            except Exception as e:
+                uptimes[name] = {"error": str(e)}
+        return uptimes
+
 simulator = DockerFailureSimulator()
 
 @router.post("/simulate", response_model=FailureSimulationResult)
@@ -226,6 +257,20 @@ async def simulate_failure(config: FailureSimulationConfig = Body(...)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failure simulation failed: {str(e)}")
+
+@router.get("/container-uptimes")
+async def get_container_uptimes(names: str):
+    """Get Docker container uptimes for a comma-separated list of container names."""
+    try:
+        container_names = [n.strip() for n in names.split(",") if n.strip()]
+        if not container_names:
+            raise HTTPException(status_code=400, detail="No container names provided")
+        uptimes = simulator.get_container_uptimes(container_names)
+        return {"uptimes": uptimes}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch uptimes: {str(e)}")
 
 @router.post("/stop")
 async def stop_failure_simulation():

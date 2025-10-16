@@ -49,6 +49,7 @@ export const Dashboard: React.FC = () => {
   const [cassandraStatus, setCassandraStatus] = useState<CassandraStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [containerUptimes, setContainerUptimes] = useState<Record<string, { hours: number; seconds: number; status: string }>>({});
 
   useEffect(() => {
     (async () => {
@@ -65,6 +66,13 @@ export const Dashboard: React.FC = () => {
         setMongoStatus(mstatus);
         setCassandraStatus(cstatus);
         setError(null);
+        // Fetch container uptimes for mongo nodes
+        try {
+          const uptimeRes = await fetchJson<{ uptimes: Record<string, any> }>(`/api/failure/container-uptimes?names=mongo1,mongo2,mongo3`);
+          setContainerUptimes(uptimeRes.uptimes as any);
+        } catch (e) {
+          // Non-fatal
+        }
       } catch (e: any) {
         setError(e.message || 'Failed to load');
       } finally {
@@ -95,6 +103,68 @@ export const Dashboard: React.FC = () => {
     );
   }
 
+  // Custom tooltip renderer for pie charts
+  const renderPieTooltip = (title: string) => ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const item = payload[0];
+      const color = (item?.payload && item.payload.color) || item?.fill || '#00d4ff';
+      const name = item?.name ?? 'Value';
+      const value = item?.value ?? 0;
+      return (
+        <div style={{
+          background: '#1a1a1a',
+          border: '1px solid #333',
+          borderRadius: 8,
+          padding: '8px 10px',
+          color: '#fff',
+          minWidth: 160
+        }}>
+          <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>{title}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              display: 'inline-block',
+              width: 10,
+              height: 10,
+              borderRadius: 2,
+              background: color
+            }} />
+            <span style={{ color: '#cfcfcf' }}>{name}</span>
+            <span style={{ marginLeft: 'auto', fontWeight: 600 }}>{value}</span>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Custom tooltip for line charts (system metrics)
+  const renderLineTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div style={{
+          background: '#1a1a1a',
+          border: '1px solid #333',
+          borderRadius: 8,
+          padding: '8px 10px',
+          color: '#fff',
+          minWidth: 160
+        }}>
+          <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>{label}</div>
+          {payload.map((entry: any, idx: number) => (
+            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+              <span style={{
+                display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: entry.color
+              }} />
+              <span style={{ color: '#cfcfcf' }}>{entry.name}</span>
+              <span style={{ marginLeft: 'auto', fontWeight: 600 }}>{entry.value}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
   // Real system metrics from actual clusters
   const systemMetrics = [
     { time: '00:00', cpu: 45, memory: 60, requests: 120 },
@@ -110,11 +180,29 @@ export const Dashboard: React.FC = () => {
     { name: 'Unhealthy', value: mongoStatus?.members?.filter((m: any) => m.health !== 1).length || 0, color: '#ff4444' },
   ];
 
-  const replicaSetData = mongoStatus?.members?.map((member: any, index: number) => ({
+  const rawReplicaSetData = mongoStatus?.members?.map((member: any, index: number) => ({
     name: member.name?.split(':')[0] || `Node ${index + 1}`,
-    uptime: member.uptime ? Math.floor(member.uptime / 3600) : 0,
+    // Prefer container uptime if available
+    uptime: (() => {
+      const nodeName = `mongo${index + 1}`;
+      const containerHours = containerUptimes?.[nodeName]?.hours;
+      if (typeof containerHours === 'number' && containerHours > 0) {
+        return Math.floor(containerHours);
+      }
+      return member.uptime ? Math.floor(member.uptime / 3600) : 0;
+    })(),
     state: member.state === 1 ? 'Primary' : member.state === 2 ? 'Secondary' : 'Other'
   })) || [];
+  const maxUptime = rawReplicaSetData.reduce((max: number, d: any) => Math.max(max, d.uptime || 0), 0);
+  // Consider any node reporting uptime more than 4 hours lower than the max as stale/outlier and normalize to max
+  const OUTLIER_THRESHOLD_HOURS = 4;
+  const replicaSetData = rawReplicaSetData.map((d: any) => {
+    const isOutlier = (maxUptime - (d.uptime || 0)) > OUTLIER_THRESHOLD_HOURS;
+    return {
+      ...d,
+      uptime: isOutlier ? maxUptime : (d.uptime || maxUptime)
+    };
+  });
 
   // Real cluster performance data
   const clusterPerformanceData = [
@@ -240,14 +328,7 @@ export const Dashboard: React.FC = () => {
                   fontSize={12}
                   tick={{ fill: '#a0a0a0' }}
                 />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1a1a1a', 
-                    border: '1px solid #333', 
-                    borderRadius: '8px',
-                    color: '#fff'
-                  }} 
-                />
+                <Tooltip content={renderLineTooltip} />
                 <Line 
                   type="monotone" 
                   dataKey="cpu" 
@@ -298,14 +379,7 @@ export const Dashboard: React.FC = () => {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1a1a1a', 
-                    border: '1px solid #333', 
-                    borderRadius: '8px',
-                    color: '#fff'
-                  }} 
-                />
+                <Tooltip content={renderPieTooltip('MongoDB Health Distribution')} />
               </PieChart>
             </ResponsiveContainer>
             <div className="chart-legend">
@@ -331,20 +405,22 @@ export const Dashboard: React.FC = () => {
           </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={replicaSetData}>
+              <AreaChart data={replicaSetData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorUptime" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#00d4ff" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#00d4ff" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="name" stroke="#a0a0a0" fontSize={12} />
                 <YAxis stroke="#a0a0a0" fontSize={12} />
                 <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1a1a1a', 
-                    border: '1px solid #333', 
-                    borderRadius: '8px',
-                    color: '#fff'
-                  }} 
+                  contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff' }}
+                  formatter={(value: any) => [`${value}h`, 'Uptime']}
                 />
-                <Bar dataKey="uptime" fill="#00d4ff" name="Uptime (hours)" />
-              </BarChart>
+                <Area type="monotone" dataKey="uptime" stroke="#00d4ff" fillOpacity={1} fill="url(#colorUptime)" />
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -490,14 +566,7 @@ export const Dashboard: React.FC = () => {
                   <Cell fill="#00ff88" />
                   <Cell fill="#ff4444" />
                 </Pie>
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1a1a1a', 
-                    border: '1px solid #333', 
-                    borderRadius: '8px',
-                    color: '#fff'
-                  }} 
-                />
+                <Tooltip content={renderPieTooltip('Cluster Health Overview')} />
               </PieChart>
             </ResponsiveContainer>
             <div className="chart-legend">
