@@ -24,6 +24,8 @@ node_modules/
 *.pid
 *.sqlite3
 
+logs/
+
 # -------------------
 # Database Data
 # -------------------
