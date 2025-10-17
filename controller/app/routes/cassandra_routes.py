@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Body, Query
-from pydantic import BaseModel
-from typing import Dict, Any
 from cassandra import InvalidRequest
 from app.cassandra_client import CassandraClient, get_cluster_info
 import os
+
+from app.models.cassandra_models import CassandraDeleteBody, CassandraDocument, CassandraFindBody, DeleteResponse, InsertResponse, UpdateRequest, UpdateResponse
 
 cassandra_router = APIRouter()
 CASSANDRA_KEYSPACE = os.getenv("CASSANDRA_KEYSPACE", "testkeyspace")
@@ -15,47 +15,7 @@ def get_client() -> CassandraClient:
         client = CassandraClient(keyspace=CASSANDRA_KEYSPACE)
     return client
 
-# ---------------------------
-# Pydantic Models
-# ---------------------------
-class CassandraDocument(BaseModel):
-    """
-    Flexible model for Cassandra document (row)
-    """
-    id: str | None = None
-    name: str | None = None
-    status: str | None = None
-    type: str | None = None
-    
-    class Config:
-        extra = "allow"  # Allow additional fields
 
-class CassandraFindBody(BaseModel):
-    filters: Dict[str, Any] = {}
-
-class CassandraUpdateBody(BaseModel):
-    filter: Dict[str, Any]
-    update: Dict[str, Any]
-
-class CassandraDeleteBody(BaseModel):
-    filter: Dict[str, Any]
-
-class InsertResponse(BaseModel):
-    inserted: bool
-    data: Dict[str, Any]
-
-class UpdateResponse(BaseModel):
-    updated: bool
-    fields_updated: int
-    filter_used: Dict[str, Any]
-    updates_applied: Dict[str, Any]
-
-class UpdateRequest(BaseModel):
-    filters: Dict[str, Any]
-    updates: Dict[str, Any]
-
-class DeleteResponse(BaseModel):
-    deleted: int
 
 # ---------------------------
 # Cluster Info / Health

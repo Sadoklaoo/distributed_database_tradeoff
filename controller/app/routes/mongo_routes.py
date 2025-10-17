@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException, Body, Query
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 from app.mongo_client import MongoDBClient
-from app.utils import bson_to_json_compatible
+from app.models.mongo_models import DeleteBody, DeleteResponse, FindBody, InsertResponse, UpdateBody, UpdateResponse
+from app.utils.bson_utils import bson_to_json_compatible
 import os
 
 router = APIRouter()
@@ -10,32 +11,7 @@ mongo_uri = os.getenv("MONGO_URI", "mongodb://mongo1:27017")
 db_name = os.getenv("MONGO_DB", "testDB")
 client = MongoDBClient(uri=mongo_uri, db_name=db_name)
 
-# ---------------------------
-# Pydantic Models
-# ---------------------------
-class FindBody(BaseModel):
-    filter: Optional[Dict[str, Any]] = {}
-    projection: Optional[Dict[str, int]] = None
-    limit: Optional[int] = 0
 
-class UpdateBody(BaseModel):
-    filter: Dict[str, Any]
-    update: Dict[str, Any]
-
-class DeleteBody(BaseModel):
-    filter: Dict[str, Any]
-
-class InsertResponse(BaseModel):
-    inserted_id: str
-
-class UpdateResponse(BaseModel):
-    matched_count: int
-    modified_count: int
-    acknowledged: bool
-
-class DeleteResponse(BaseModel):
-    deleted_count: int
-    acknowledged: bool
 
 # ---------------------------
 # Health / Status

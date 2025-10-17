@@ -17,6 +17,7 @@ services:
       - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./logs:/app/logs
     depends_on:
       - mongo1
       - mongo2
@@ -25,7 +26,7 @@ services:
       - cassandra2
       - cassandra3
     command: >
-      bash -c "echo '⏳ Waiting for Cassandra cluster...' && sleep 90 &&
+      bash -c "echo '⏳ Waiting for Cassandra cluster...' && sleep 60 &&
                echo '🚀 Starting FastAPI controller...' &&
                uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
   # Web Frontend
