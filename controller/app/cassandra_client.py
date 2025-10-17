@@ -94,8 +94,7 @@ class CassandraClient:
             
             # Get existing columns
             existing_columns = self._existing_columns(table)
-            print(f"Existing columns: {existing_columns}")
-            print(f"Document to insert: {doc}")
+
             # Create document with all fields
             full_doc = {
                 "id": doc["id"],
@@ -103,7 +102,7 @@ class CassandraClient:
                 "status": doc.get("status"),
                 "type": doc.get("type")
             }
-            print(f"Full document for insertion: {full_doc}")
+
             
             # Build query
             columns = list(full_doc.keys())
@@ -116,9 +115,6 @@ class CassandraClient:
             # Prepare values maintaining column order
             values = [full_doc[col] for col in columns]
             
-            print(f"Insert Columns: {columns}")
-            print(f"Insert Query: {query}")
-            print(f"Insert Values: {values}")
             
             # Execute with prepared statement
             prepared = self.session.prepare(query)
@@ -182,8 +178,7 @@ class CassandraClient:
             # Prepare values in correct order
             values = list(updates.values()) + list(filters.values())
             
-            print(f"Update Query: {query}")
-            print(f"Update Values: {values}")
+
 
             # Execute prepared statement
             prepared = self.session.prepare(query)

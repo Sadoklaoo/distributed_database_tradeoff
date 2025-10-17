@@ -5,3 +5,5 @@ cassandra-driver
 python-dotenv
 docker
 pydantic
+tqdm
+colorama
