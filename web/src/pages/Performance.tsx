@@ -4,8 +4,6 @@ import {
   BarChart3, 
   Clock, 
   Zap,
-  Database,
-  HardDrive,
   TrendingUp,
   Activity
 } from 'lucide-react';
@@ -18,10 +16,7 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer,
-  ScatterChart,
-  Scatter
-} from 'recharts';
+  ResponsiveContainer} from 'recharts';
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(path, options);

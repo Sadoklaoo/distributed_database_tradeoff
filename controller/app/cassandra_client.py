@@ -8,6 +8,7 @@ from cassandra import InvalidRequest
 CONTACT_STR = os.getenv("CASSANDRA_CONTACT_POINTS", "cassandra1,cassandra2,cassandra3")
 CONTACT_POINTS = [c.strip() for c in CONTACT_STR.split(",") if c.strip()]
 
+
 def _convert_uuid_values(d: dict) -> dict:
     """Convert string UUIDs to uuid.UUID objects."""
     new_d = {}
@@ -22,12 +23,30 @@ def _convert_uuid_values(d: dict) -> dict:
     return new_d
 
 class CassandraClient:
+    def init_schema(self):
+        self.ensure_connected()
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {self.keyspace}.devices (
+            id uuid PRIMARY KEY,
+            name text,
+            status text,
+            type text
+        )
+        """
+        self.session.execute(query)
+
     def __init__(self, keyspace: str, replication_factor: int = 3):
         self.cluster = Cluster(contact_points=CONTACT_POINTS)
         self.session = None
         self.keyspace = keyspace
         self.replication_factor = replication_factor
         self._column_cache = {}
+        self._prepared_cache = {}
+
+    def execute_prepared(self, query: str, values: list):
+        if query not in self._prepared_cache:
+            self._prepared_cache[query] = self.session.prepare(query)
+        self.session.execute(self._prepared_cache[query], values)   
 
     def ensure_connected(self):
         if self.session is not None:
@@ -41,6 +60,7 @@ class CassandraClient:
                 self._wait_for_cluster()
                 self._create_keyspace_if_not_exists(self.replication_factor)
                 self.session.set_keyspace(self.keyspace)
+                self.init_schema()
                 return
             except Exception as e:
                 last_error = e
@@ -88,12 +108,6 @@ class CassandraClient:
                 except ValueError:
                     doc["id"] = uuid.uuid4()
 
-            # First ensure schema is ready
-            self._ensure_table_exists(table)
-            self._ensure_columns_exist(table, doc)
-            
-            # Get existing columns
-            existing_columns = self._existing_columns(table)
 
             # Create document with all fields
             full_doc = {
@@ -117,8 +131,7 @@ class CassandraClient:
             
             
             # Execute with prepared statement
-            prepared = self.session.prepare(query)
-            self.session.execute(prepared, values)
+            self.execute_prepared(query, values)
 
             return {k: str(v) if isinstance(v, uuid.UUID) else v for k, v in full_doc.items()}
 
@@ -139,8 +152,8 @@ class CassandraClient:
             values = []
 
         try:
-            prepared = self.session.prepare(query)
-            rows = self.session.execute(prepared, values)
+            self._prepared_cache[query] = self.session.prepare(query)
+            rows = self.session.execute(self._prepared_cache[query], values)
             return [dict(row._asdict()) for row in rows]
         except InvalidRequest as e:
             if "unconfigured table" in str(e).lower():
@@ -161,10 +174,6 @@ class CassandraClient:
 
             self.ensure_connected()
             
-            # Ensure table and columns exist
-            self._ensure_table_exists(table)
-            self._ensure_columns_exist(table, updates)
-            self._ensure_columns_exist(table, filters)
 
             # Convert UUID strings to UUID objects
             filters = _convert_uuid_values(filters)
@@ -181,8 +190,7 @@ class CassandraClient:
 
 
             # Execute prepared statement
-            prepared = self.session.prepare(query)
-            self.session.execute(prepared, values)
+            self.execute_prepared(query, values)
 
             # Return response matching UpdateResponse model
             return {
@@ -204,15 +212,12 @@ class CassandraClient:
             self.ensure_connected()
             filters = _convert_uuid_values(filters)
             
-            # Ensure table exists
-            self._ensure_table_exists(table)
             
             where_clause = " AND ".join([f"{k} = ?" for k in filters.keys()])
             query = f"DELETE FROM {self.keyspace}.{table} WHERE {where_clause}"
             
             values = list(filters.values())
-            prepared = self.session.prepare(query)
-            self.session.execute(prepared, values)
+            self.execute_prepared(query, values)
             return 1
         except Exception as e:
             print(f"Delete error: {str(e)}")
@@ -226,7 +231,7 @@ class CassandraClient:
         )
         """
         self.session.execute(query)
-        time.sleep(1)  # Give time for table creation to propagate
+
 
     def _existing_columns(self, table: str):
         cache_key = f"{self.keyspace}.{table}"
@@ -264,7 +269,7 @@ class CassandraClient:
                     # Add column if it doesn't exist
                     query = f"ALTER TABLE {self.keyspace}.{table} ADD {key} {ctype}"
                     self.session.execute(query)
-                    time.sleep(1)  # Give time for schema propagation
+                    
                     
                     # Update cache
                     cache_key = f"{self.keyspace}.{table}"
