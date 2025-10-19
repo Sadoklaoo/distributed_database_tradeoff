@@ -1116,6 +1116,12 @@ body {
   background: var(--bg-secondary);
 }
 
+.form-description {
+  font-size: 0.875rem; /* small text */
+  color: var(--text-muted); /* gray color */
+  margin-top: 0.25rem;
+}
+
 /* Responsive Modal */
 @media (max-width: 768px) {
   .modal {

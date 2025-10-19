@@ -99,24 +99,35 @@ const throughputData = (testResults?.throughputMetrics || []).map((item: any) =>
         <div className="grid grid-cols-2 gap-6">
           <div className="form-group">
             <label>Operation Count</label>
+            <p className="form-description">
+              Total number of operations the test will execute.
+            </p>
             <input 
               type="number" 
               value={testConfig.operationCount}
               onChange={(e) => setTestConfig({...testConfig, operationCount: parseInt(e.target.value)})}
               className="form-input"
             />
+            
           </div>
           <div className="form-group">
             <label>Batch Size</label>
+            <p className="form-description">
+              Number of operations sent in one batch during the test.
+            </p>
             <input 
               type="number" 
               value={testConfig.batchSize}
               onChange={(e) => setTestConfig({...testConfig, batchSize: parseInt(e.target.value)})}
               className="form-input"
             />
+            
           </div>
           <div className="form-group">
             <label>Consistency Level</label>
+            <p className="form-description">
+              Determines how strictly the database maintains consistency.
+            </p>
             <select 
               value={testConfig.consistencyLevel}
               onChange={(e) => setTestConfig({...testConfig, consistencyLevel: e.target.value})}
@@ -126,9 +137,13 @@ const throughputData = (testResults?.throughputMetrics || []).map((item: any) =>
               <option value="strong">Strong</option>
               <option value="session">Session</option>
             </select>
+            
           </div>
           <div className="form-group">
             <label>Test Type</label>
+            <p className="form-description">
+              Select the type of operations that will dominate the test.
+            </p>
             <select 
               value={testConfig.testType}
               onChange={(e) => setTestConfig({...testConfig, testType: e.target.value})}
@@ -139,6 +154,7 @@ const throughputData = (testResults?.throughputMetrics || []).map((item: any) =>
               <option value="write-heavy">Write Heavy</option>
               <option value="update-heavy">Update Heavy</option>
             </select>
+            
           </div>
         </div>
         <button 
