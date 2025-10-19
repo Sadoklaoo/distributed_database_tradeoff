@@ -55,8 +55,23 @@ export const Performance: React.FC = () => {
     }
   };
 
-  const latencyData = testResults?.latencyMetrics || [];
-  const throughputData = testResults?.throughputMetrics || [];
+  const latencyData = (testResults?.latencyMetrics || []).map((item: any) => ({
+  operation: item.operation,
+  mongodb: parseFloat(item.mongodb.toFixed(5)),
+  cassandra: parseFloat(item.cassandra.toFixed(5))
+}));
+const throughputData = (testResults?.throughputMetrics || []).map((item: any) => ({
+  db: item.db,
+  throughput: parseFloat(item.throughput.toFixed(5))
+}));
+
+  const throughputDiff = testResults?.detailedResults
+  ? ((
+      (testResults.detailedResults.mongo.throughput - 
+       testResults.detailedResults.cassandra.throughput
+      ) / testResults.detailedResults.cassandra.throughput
+    ) * 100).toFixed(2)
+  : 0;
 
   return (
     <div className="container">
@@ -177,9 +192,9 @@ export const Performance: React.FC = () => {
               </h2>
               <div className="chart-container">
                 <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={throughputData}>
+                  <BarChart data={throughputData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                    <XAxis dataKey="time" stroke="#a0a0a0" fontSize={12} />
+                    <XAxis dataKey="db" stroke="#a0a0a0" fontSize={12} />
                     <YAxis stroke="#a0a0a0" fontSize={12} />
                     <Tooltip 
                       contentStyle={{ 
@@ -189,23 +204,9 @@ export const Performance: React.FC = () => {
                         color: '#fff'
                       }} 
                     />
-                    <Line 
-                      type="monotone" 
-                      dataKey="mongodb" 
-                      stroke="#00d4ff" 
-                      strokeWidth={3}
-                      dot={{ fill: '#00d4ff', strokeWidth: 2, r: 5 }}
-                      name="MongoDB Ops/sec"
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="cassandra" 
-                      stroke="#00ff88" 
-                      strokeWidth={3}
-                      dot={{ fill: '#00ff88', strokeWidth: 2, r: 5 }}
-                      name="Cassandra Ops/sec"
-                    />
-                  </LineChart>
+                    <Bar dataKey="throughput" fill="#00d4ff" name="Throughput (ops/sec)" />
+                  
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
@@ -219,19 +220,23 @@ export const Performance: React.FC = () => {
             </h2>
             <div className="grid grid-cols-4 gap-4">
               <div className="metric-card">
-                <div className="metric-value">{testResults.summary?.totalOperations || 0}</div>
+                <div className="metric-value">{testResults.summary?.totalOps || 0}</div>
                 <div className="metric-label">Total Operations</div>
               </div>
               <div className="metric-card">
-                <div className="metric-value">{testResults.summary?.avgLatencyMongo || 0}ms</div>
+                <div className="metric-value">{testResults.summary?.errors || 0}</div>
+                <div className="metric-label">Errors</div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-value">{testResults.detailedResults?.mongo?.throughput?.toFixed(5) || 0}ms</div>
                 <div className="metric-label">MongoDB Avg Latency</div>
               </div>
               <div className="metric-card">
-                <div className="metric-value">{testResults.summary?.avgLatencyCassandra || 0}ms</div>
+                <div className="metric-value">{testResults.detailedResults?.cassandra?.throughput?.toFixed(5) || 0}ms</div>
                 <div className="metric-label">Cassandra Avg Latency</div>
               </div>
               <div className="metric-card">
-                <div className="metric-value">{testResults.summary?.throughputDiff || 0}%</div>
+                <div className="metric-value">{throughputDiff || 0}%</div>
                 <div className="metric-label">Throughput Difference</div>
               </div>
             </div>

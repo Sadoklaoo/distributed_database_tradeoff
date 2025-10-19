@@ -33,11 +33,14 @@ services:
   web:
     build:
       context: ./web
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: web_frontend
     restart: always
     ports:
-      - "5173:80"
+      - "5173:5173"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
     depends_on:
       - controller
     environment:
