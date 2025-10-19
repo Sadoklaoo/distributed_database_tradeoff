@@ -17,6 +17,7 @@ import {
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer} from 'recharts';
+import toast from 'react-hot-toast';
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(path, options);
@@ -35,6 +36,8 @@ export const Performance: React.FC = () => {
   const [testResults, setTestResults] = useState<any>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [popupMessage, setPopupMessage] = useState("");
+  const [showPopup, setShowPopup] = useState(false);
 
   const runPerformanceTest = async () => {
     try {
@@ -48,8 +51,10 @@ export const Performance: React.FC = () => {
       });
       
       setTestResults(result);
+      toast.success("Performance report successfully generated!");
     } catch (e: any) {
       setError(e.message);
+      toast.error("❌ Error running performance test.");
     } finally {
       setIsRunning(false);
     }
@@ -154,7 +159,19 @@ const throughputData = (testResults?.throughputMetrics || []).map((item: any) =>
           )}
         </button>
       </section>
-
+       {showPopup && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50">
+          <div className="bg-white rounded-2xl shadow-lg p-6 text-center w-96 animate-fadeIn">
+            <h2 className="text-lg font-semibold mb-3">{popupMessage}</h2>
+            <button
+              onClick={() => setShowPopup(false)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg mt-3"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
       {testResults && (
         <>
           {/* Performance Metrics */}
