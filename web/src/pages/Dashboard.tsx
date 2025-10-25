@@ -1,33 +1,12 @@
-// @ts-nocheck
-import React, { useEffect, useState } from 'react';
-import { 
-  Server, 
-  Database, 
-  Activity, 
-  HardDrive,
-  CheckCircle,
-  AlertTriangle,
-  TrendingUp,
-  Users,
-  Cpu,
-  Clock,
-  Shield
+import React, { useEffect, useState, useRef } from 'react';
+import {
+  Server, Database, Activity, HardDrive,
+  CheckCircle, AlertTriangle, TrendingUp,
+  Users, Cpu, Clock, Shield
 } from 'lucide-react';
-import { 
-  LineChart, 
-  Line, 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar
+import {
+  LineChart, Line, AreaChart, Area, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar
 } from 'recharts';
 
 type Health = { status: string; message?: string };
@@ -44,66 +23,98 @@ async function fetchJson<T>(path: string): Promise<T> {
 
 export const Dashboard: React.FC = () => {
   const [controllerHealth, setControllerHealth] = useState<Health | null>(null);
-  const [mongoPing, setMongoPing] = useState<any>(null);
   const [mongoStatus, setMongoStatus] = useState<any>(null);
   const [cassandraStatus, setCassandraStatus] = useState<CassandraStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [containerUptimes, setContainerUptimes] = useState<Record<string, { hours: number; seconds: number; status: string }>>({});
+  const [liveMetrics, setLiveMetrics] = useState<any>(null);
+  const [liveChartData, setLiveChartData] = useState<Array<{ time: string; cpu: number; memory: number; requests: number }>>([]);
+
+  const liveInterval = useRef<any>(null);
 
   useEffect(() => {
-    (async () => {
+    const fetchAll = async () => {
       try {
         setLoading(true);
-        const [health, ping, mstatus, cstatus] = await Promise.all([
+        const [health, mstatus, cstatus, uptimeRes, live] = await Promise.all([
           fetchJson<Health>('/api/health'),
-          fetchJson<any>('/api/mongo/ping'),
           fetchJson<any>('/api/mongo/status'),
-          fetchJson<CassandraStatus>('/api/cassandra/status'),
+          waitForCassandra(),
+          fetchJson<{ uptimes: Record<string, any> }>('/api/failure/container-uptimes?names=mongo1,mongo2,mongo3'),
+          fetchJson<any>('/api/report/metrics/live')
         ]);
+
         setControllerHealth(health);
-        setMongoPing(ping);
         setMongoStatus(mstatus);
         setCassandraStatus(cstatus);
+        setContainerUptimes(uptimeRes.uptimes || {});
+        setLiveMetrics(live);
         setError(null);
-        // Fetch container uptimes for mongo nodes
+
+         // Initialize chart data
+      const firstPoint = {
+        time: new Date(live.timestamp).toLocaleTimeString(),
+        cpu: live.cpu_percent,
+        memory: live.memory.percent,
+        requests: live.requests || 0
+      };
+      setLiveChartData([firstPoint]);
+
+      // Live polling every 5 seconds
+      liveInterval.current = setInterval(async () => {
         try {
-          const uptimeRes = await fetchJson<{ uptimes: Record<string, any> }>(`/api/failure/container-uptimes?names=mongo1,mongo2,mongo3`);
-          setContainerUptimes(uptimeRes.uptimes as any);
-        } catch (e) {
-          // Non-fatal
-        }
+          const newLive = await fetchJson<any>('/api/report/metrics/live');
+          setLiveMetrics(newLive);
+
+          // Add new point to chart
+          setLiveChartData(prev => {
+            const newPoint = {
+              time: new Date(newLive.timestamp).toLocaleTimeString(),
+              cpu: newLive.cpu_percent,
+              memory: newLive.memory.percent,
+              requests: newLive.requests || 0
+            };
+            const updated = [...prev, newPoint];
+            return updated.slice(-20); // keep last 20 points
+          });
+          } catch (e) {
+            console.error('Failed to fetch live metrics:', e);
+          }
+        }, 5000);
+
       } catch (e: any) {
         setError(e.message || 'Failed to load');
       } finally {
         setLoading(false);
       }
-    })();
+    };
+
+    fetchAll();
+
+    return () => clearInterval(liveInterval.current);
   }, []);
 
-  const getStatusIcon = (status: string) => {
-    switch (status?.toLowerCase()) {
-      case 'ok':
-      case 'online':
-      case 'up':
-        return <CheckCircle className="w-4 h-4" />;
-      default:
-        return <AlertTriangle className="w-4 h-4" />;
+
+  const waitForCassandra = async (retries = 30, delay = 3000) => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const cstatus = await fetchJson<CassandraStatus>('/api/cassandra/status');
+        if (cstatus) return cstatus;
+      } catch (e) {
+        // Cassandra not ready yet
+      }
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
+    throw new Error('Cassandra did not become ready in time');
   };
 
-  if (loading) {
-    return (
-      <div className="container">
-        <div className="loading">
-          <div className="spinner"></div>
-          Loading dashboard...
-        </div>
-      </div>
-    );
-  }
 
-  // Custom tooltip renderer for pie charts
+
+
+  if (loading) return <div className="container"><div className="loading"><div className="spinner"></div>Loading dashboard...</div></div>;
+
+  // --- Custom tooltips ---
   const renderPieTooltip = (title: string) => ({ active, payload }: any) => {
     if (active && payload && payload.length) {
       const item = payload[0];
@@ -137,7 +148,6 @@ export const Dashboard: React.FC = () => {
     return null;
   };
 
-  // Custom tooltip for line charts (system metrics)
   const renderLineTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
@@ -165,14 +175,9 @@ export const Dashboard: React.FC = () => {
     return null;
   };
 
-  // Real system metrics from actual clusters
-  const systemMetrics = [
-    { time: '00:00', cpu: 45, memory: 60, requests: 120 },
-    { time: '04:00', cpu: 52, memory: 65, requests: 95 },
-    { time: '08:00', cpu: 78, memory: 70, requests: 180 },
-    { time: '12:00', cpu: 85, memory: 75, requests: 220 },
-    { time: '16:00', cpu: 72, memory: 68, requests: 190 },
-    { time: '20:00', cpu: 58, memory: 62, requests: 150 },
+  // --- Live Metrics Integration ---
+  const systemMetrics = liveMetrics?.systemMetrics || [
+    { time: '00:00', cpu: 0, memory: 0, requests: 0 },
   ];
 
   const mongoHealthData = [
@@ -182,30 +187,22 @@ export const Dashboard: React.FC = () => {
 
   const rawReplicaSetData = mongoStatus?.members?.map((member: any, index: number) => ({
     name: member.name?.split(':')[0] || `Node ${index + 1}`,
-    // Prefer container uptime if available
     uptime: (() => {
       const nodeName = `mongo${index + 1}`;
       const containerHours = containerUptimes?.[nodeName]?.hours;
-      if (typeof containerHours === 'number' && containerHours > 0) {
-        return Math.floor(containerHours * 3600); // store seconds
-      }
-      return member.uptime ? Math.floor(member.uptime) : 0; // member.uptime already in seconds
+      if (typeof containerHours === 'number' && containerHours > 0) return Math.floor(containerHours * 3600);
+      return member.uptime ? Math.floor(member.uptime) : 0;
     })(),
     state: member.state === 1 ? 'Primary' : member.state === 2 ? 'Secondary' : 'Other'
   })) || [];
+
   const maxUptimeSeconds = rawReplicaSetData.reduce((max: number, d: any) => Math.max(max, d.uptime || 0), 0);
-  // Consider any node reporting uptime more than 4 hours lower than the max as stale/outlier and normalize to max
   const OUTLIER_THRESHOLD_HOURS = 4;
   const replicaSetData = rawReplicaSetData.map((d: any) => {
     const isOutlier = ((maxUptimeSeconds - (d.uptime || 0)) > OUTLIER_THRESHOLD_HOURS * 3600);
-    return {
-      ...d,
-      uptime: isOutlier ? maxUptimeSeconds : (d.uptime || maxUptimeSeconds)
-    };
+    return { ...d, uptime: isOutlier ? maxUptimeSeconds : (d.uptime || maxUptimeSeconds) };
   });
-
-  // Choose unit based on cluster uptime
-  const useMinutes = maxUptimeSeconds < 3600; // less than 1 hour
+  const useMinutes = maxUptimeSeconds < 3600;
   const uptimeUnitLabel = useMinutes ? 'min' : 'h';
   const uptimeYAxisMax = useMinutes ? Math.ceil((maxUptimeSeconds || 0) / 60) : Math.ceil((maxUptimeSeconds || 0) / 3600);
   const replicaSetDisplayData = replicaSetData.map((d: any) => ({
@@ -213,69 +210,8 @@ export const Dashboard: React.FC = () => {
     uptimeDisplay: useMinutes ? Math.floor((d.uptime || 0) / 60) : Math.floor((d.uptime || 0) / 3600)
   }));
 
-  // Real cluster performance data
-  const clusterPerformanceData = [
-    {
-      metric: 'Response Time (ms)',
-      mongodb: mongoStatus?.members?.length ? 2.5 : 0,
-      cassandra: cassandraStatus?.peers?.length ? 1.8 : 0
-    },
-    {
-      metric: 'Throughput (ops/sec)',
-      mongodb: mongoStatus?.members?.length ? 1200 : 0,
-      cassandra: cassandraStatus?.peers?.length ? 1800 : 0
-    },
-    {
-      metric: 'Availability (%)',
-      mongodb: mongoStatus?.members?.length ? 99.9 : 0,
-      cassandra: cassandraStatus?.peers?.length ? 99.99 : 0
-    },
-    {
-      metric: 'Consistency Level',
-      mongodb: mongoStatus?.members?.length ? 95 : 0,
-      cassandra: cassandraStatus?.peers?.length ? 60 : 0
-    }
-  ];
 
-  // Real system load based on cluster activity
-  const realSystemMetrics = [
-    { 
-      time: '00:00', 
-      cpu: 45 + (mongoStatus?.members?.length || 0) * 5, 
-      memory: 60 + (cassandraStatus?.peers?.length || 0) * 3,
-      requests: 120 + (mongoStatus?.members?.length || 0) * 20
-    },
-    { 
-      time: '04:00', 
-      cpu: 52 + (mongoStatus?.members?.length || 0) * 5, 
-      memory: 65 + (cassandraStatus?.peers?.length || 0) * 3,
-      requests: 95 + (mongoStatus?.members?.length || 0) * 20
-    },
-    { 
-      time: '08:00', 
-      cpu: 78 + (mongoStatus?.members?.length || 0) * 5, 
-      memory: 70 + (cassandraStatus?.peers?.length || 0) * 3,
-      requests: 180 + (mongoStatus?.members?.length || 0) * 20
-    },
-    { 
-      time: '12:00', 
-      cpu: 85 + (mongoStatus?.members?.length || 0) * 5, 
-      memory: 75 + (cassandraStatus?.peers?.length || 0) * 3,
-      requests: 220 + (mongoStatus?.members?.length || 0) * 20
-    },
-    { 
-      time: '16:00', 
-      cpu: 72 + (mongoStatus?.members?.length || 0) * 5, 
-      memory: 68 + (cassandraStatus?.peers?.length || 0) * 3,
-      requests: 190 + (mongoStatus?.members?.length || 0) * 20
-    },
-    { 
-      time: '20:00', 
-      cpu: 58 + (mongoStatus?.members?.length || 0) * 5, 
-      memory: 62 + (cassandraStatus?.peers?.length || 0) * 3,
-      requests: 150 + (mongoStatus?.members?.length || 0) * 20
-    },
-  ];
+
 
   return (
     <div className="container">
@@ -295,7 +231,7 @@ export const Dashboard: React.FC = () => {
             <div className="status-value">{controllerHealth?.status === 'ok' ? 'ONLINE' : 'OFFLINE'}</div>
           </div>
         </div>
-        
+
         <div className={`status-bubble ${mongoStatus ? 'online' : 'offline'}`}>
           <Database className="w-8 h-8" />
           <div className="status-text">
@@ -304,7 +240,7 @@ export const Dashboard: React.FC = () => {
             <div className="status-count">{mongoStatus?.members?.length || 0} members</div>
           </div>
         </div>
-        
+
         <div className={`status-bubble ${cassandraStatus ? 'online' : 'offline'}`}>
           <HardDrive className="w-8 h-8" />
           <div className="status-text">
@@ -318,89 +254,19 @@ export const Dashboard: React.FC = () => {
       {/* Charts Section */}
       <section className="charts-section">
         <div className="chart-card">
-          <h2>
-            <TrendingUp className="w-6 h-6" />
-            System Performance Metrics (Live Data)
-          </h2>
+          <h2><TrendingUp className="w-6 h-6" />System Performance Metrics (Live)</h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={realSystemMetrics} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+              <LineChart data={liveChartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis 
-                  dataKey="time" 
-                  stroke="#a0a0a0" 
-                  fontSize={12}
-                  tick={{ fill: '#a0a0a0' }}
-                />
-                <YAxis 
-                  stroke="#a0a0a0" 
-                  fontSize={12}
-                  tick={{ fill: '#a0a0a0' }}
-                />
+                <XAxis dataKey="time" stroke="#a0a0a0" />
+                <YAxis stroke="#a0a0a0" />
                 <Tooltip content={renderLineTooltip} />
-                <Line 
-                  type="monotone" 
-                  dataKey="cpu" 
-                  stroke="#00d4ff" 
-                  strokeWidth={3}
-                  dot={{ fill: '#00d4ff', strokeWidth: 2, r: 5 }}
-                  name="CPU Usage %"
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="memory" 
-                  stroke="#00ff88" 
-                  strokeWidth={3}
-                  dot={{ fill: '#00ff88', strokeWidth: 2, r: 5 }}
-                  name="Memory Usage %"
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="requests" 
-                  stroke="#ffaa00" 
-                  strokeWidth={3}
-                  dot={{ fill: '#ffaa00', strokeWidth: 2, r: 5 }}
-                  name="Requests/min"
-                />
+                <Line type="monotone" dataKey="cpu" stroke="#00d4ff" strokeWidth={3} isAnimationActive={true} />
+                <Line type="monotone" dataKey="memory" stroke="#00ff88" strokeWidth={3} isAnimationActive={true} />
+                <Line type="monotone" dataKey="requests" stroke="#ffaa00" strokeWidth={3} isAnimationActive={true} />
               </LineChart>
             </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="chart-card">
-          <h2>
-            <Database className="w-6 h-6" />
-            MongoDB Health Distribution
-          </h2>
-          <div className="chart-container">
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={mongoHealthData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={120}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {mongoHealthData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip content={renderPieTooltip('MongoDB Health Distribution')} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="chart-legend">
-              <div className="legend-item">
-                <div className="legend-color" style={{ backgroundColor: '#00ff88' }}></div>
-                <span>Healthy Nodes ({mongoHealthData[0]?.value || 0})</span>
-              </div>
-              <div className="legend-item">
-                <div className="legend-color" style={{ backgroundColor: '#ff4444' }}></div>
-                <span>Unhealthy Nodes ({mongoHealthData[1]?.value || 0})</span>
-              </div>
-            </div>
           </div>
         </div>
       </section>
@@ -417,14 +283,14 @@ export const Dashboard: React.FC = () => {
               <AreaChart data={replicaSetDisplayData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorUptime" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00d4ff" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#00d4ff" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#00d4ff" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#00d4ff" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="name" stroke="#a0a0a0" fontSize={12} />
                 <YAxis stroke="#a0a0a0" fontSize={12} domain={[0, uptimeYAxisMax || 'auto']} />
-                <Tooltip 
+                <Tooltip
                   contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff' }}
                   formatter={(value: any) => [`${value}${uptimeUnitLabel}`, 'Uptime']}
                 />
@@ -448,13 +314,13 @@ export const Dashboard: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="name" stroke="#a0a0a0" fontSize={12} />
                 <YAxis stroke="#a0a0a0" fontSize={12} />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1a1a1a', 
-                    border: '1px solid #333', 
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1a1a1a',
+                    border: '1px solid #333',
                     borderRadius: '8px',
                     color: '#fff'
-                  }} 
+                  }}
                 />
                 <Bar dataKey="peers" fill="#00ff88" name="Active Nodes" />
               </BarChart>
@@ -479,13 +345,13 @@ export const Dashboard: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="database" stroke="#a0a0a0" fontSize={12} />
                 <YAxis stroke="#a0a0a0" fontSize={12} />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1a1a1a', 
-                    border: '1px solid #333', 
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1a1a1a',
+                    border: '1px solid #333',
                     borderRadius: '8px',
                     color: '#fff'
-                  }} 
+                  }}
                 />
                 <Bar dataKey="responseTime" fill="#00d4ff" name="Response Time (ms)" />
               </BarChart>
@@ -507,13 +373,13 @@ export const Dashboard: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="database" stroke="#a0a0a0" fontSize={12} />
                 <YAxis stroke="#a0a0a0" fontSize={12} />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1a1a1a', 
-                    border: '1px solid #333', 
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1a1a1a',
+                    border: '1px solid #333',
                     borderRadius: '8px',
                     color: '#fff'
-                  }} 
+                  }}
                 />
                 <Bar dataKey="throughput" fill="#00ff88" name="Throughput (ops/sec)" />
               </BarChart>
@@ -535,13 +401,13 @@ export const Dashboard: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="metric" stroke="#a0a0a0" fontSize={12} />
                 <YAxis stroke="#a0a0a0" fontSize={12} />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1a1a1a', 
-                    border: '1px solid #333', 
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1a1a1a',
+                    border: '1px solid #333',
                     borderRadius: '8px',
                     color: '#fff'
-                  }} 
+                  }}
                 />
                 <Bar dataKey="mongodb" fill="#00d4ff" name="MongoDB" />
                 <Bar dataKey="cassandra" fill="#00ff88" name="Cassandra" />
@@ -634,33 +500,33 @@ export const Dashboard: React.FC = () => {
                         {member.uptime ? `${Math.floor(member.uptime / 3600)}h ${Math.floor((member.uptime % 3600) / 60)}m` : 'N/A'}
                       </td>
                       <td className="text-muted">
-                        {member.lastHeartbeatMessage ? 
+                        {member.lastHeartbeatMessage ?
                           new Date(member.lastHeartbeatMessage).toLocaleString('en-US', {
                             month: 'short',
                             day: 'numeric',
                             hour: '2-digit',
                             minute: '2-digit',
                             second: '2-digit'
-                          }) : 
-                          member.lastHeartbeat ? 
+                          }) :
+                          member.lastHeartbeat ?
                             new Date(member.lastHeartbeat).toLocaleString('en-US', {
                               month: 'short',
                               day: 'numeric',
                               hour: '2-digit',
                               minute: '2-digit'
-                            }) : 
+                            }) :
                             'Active'
                         }
                       </td>
                       <td className="text-muted">
-                        {member.priority ? `Priority: ${member.priority}` : 
-                         member.electionDate ? 
-                           `Elected: ${new Date(member.electionDate).toLocaleDateString('en-US', {
-                             month: 'short',
-                             day: 'numeric',
-                             year: 'numeric'
-                           })}` : 
-                           'Default (1)'
+                        {member.priority ? `Priority: ${member.priority}` :
+                          member.electionDate ?
+                            `Elected: ${new Date(member.electionDate).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}` :
+                            'Default (1)'
                         }
                       </td>
                     </tr>

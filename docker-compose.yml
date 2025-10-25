@@ -26,9 +26,19 @@ services:
       - cassandra2
       - cassandra3
     command: >
-      bash -c "echo '⏳ Waiting for Cassandra cluster...' && sleep 60 &&
-               echo '🚀 Starting FastAPI controller...' &&
-               uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+      bash -c "pip install cassandra-driver &&
+              python -c \"import time; from cassandra.cluster import Cluster; cluster = Cluster(['cassandra1','cassandra2','cassandra3']); 
+      while True:
+          try:
+              cluster.connect()
+              print('✅ Cassandra cluster connected!')
+              break
+          except Exception as e:
+              print('⏳ Waiting for Cassandra cluster...', e)
+              time.sleep(5)
+      \" &&
+                echo '🚀 Starting FastAPI controller...' &&
+                uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
   # Web Frontend
   web:
     build:

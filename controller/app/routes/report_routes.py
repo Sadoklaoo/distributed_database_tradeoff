@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 import os
 from app.utils.report_utils import get_latest_report, save_report_json, save_report_markdown
 from datetime import datetime
+import psutil 
 from app.utils.logger_utils import log_info
 from app.routes.performance_routes import run_performance_test_endpoint
 
@@ -68,3 +69,39 @@ def latest_report():
         return {"latest_report": latest}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# 🧠 New route: Live system performance metrics
+@router.get("/metrics/live")
+def get_live_metrics():
+    """
+    Return current system performance metrics such as CPU, memory, and disk usage.
+    Useful for dashboard live updates.
+    """
+    try:
+        cpu_percent = psutil.cpu_percent(interval=0.5)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage("/")
+        net_io = psutil.net_io_counters()
+
+        metrics = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "cpu_percent": cpu_percent,
+            "memory": {
+                "total": memory.total,
+                "used": memory.used,
+                "percent": memory.percent,
+            },
+            "disk": {
+                "total": disk.total,
+                "used": disk.used,
+                "percent": disk.percent,
+            },
+            "network": {
+                "bytes_sent": net_io.bytes_sent,
+                "bytes_recv": net_io.bytes_recv,
+            },
+        }
+
+        return metrics
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve live metrics: {e}")
