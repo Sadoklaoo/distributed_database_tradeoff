@@ -31,6 +31,7 @@ export const Dashboard: React.FC = () => {
   const [liveMetrics, setLiveMetrics] = useState<any>(null);
   const [liveChartData, setLiveChartData] = useState<Array<{ time: string; cpu: number; memory: number; requests: number }>>([]);
 
+  const prevNetworkRef = useRef<number | null>(null);
   const liveInterval = useRef<any>(null);
 
   useEffect(() => {
@@ -52,32 +53,32 @@ export const Dashboard: React.FC = () => {
         setLiveMetrics(live);
         setError(null);
 
-         // Initialize chart data
-      const firstPoint = {
-        time: new Date(live.timestamp).toLocaleTimeString(),
-        cpu: live.cpu_percent,
-        memory: live.memory.percent,
-        requests: live.requests || 0
-      };
-      setLiveChartData([firstPoint]);
 
-      // Live polling every 5 seconds
-      liveInterval.current = setInterval(async () => {
-        try {
-          const newLive = await fetchJson<any>('/api/report/metrics/live');
-          setLiveMetrics(newLive);
+        // Initialize chart data
+        const firstPoint = {
+          time: new Date(live.timestamp).toLocaleTimeString(),
+          cpu: live.cpu_percent,
+          memory: live.memory.percent,
+          requests: live.requests?.requests_per_second ?? live.requests ?? 0,
+        };
+        setLiveChartData([firstPoint]);
 
-          // Add new point to chart
-          setLiveChartData(prev => {
-            const newPoint = {
-              time: new Date(newLive.timestamp).toLocaleTimeString(),
-              cpu: newLive.cpu_percent,
-              memory: newLive.memory.percent,
-              requests: newLive.requests || 0
-            };
-            const updated = [...prev, newPoint];
-            return updated.slice(-20); // keep last 20 points
-          });
+        // Live polling every 5 seconds
+        liveInterval.current = setInterval(async () => {
+          try {
+            const newLive = await fetchJson<any>('/api/report/metrics/live');
+            setLiveMetrics(newLive);
+            // Add new point to chart
+            setLiveChartData(prev => {
+              const newPoint = {
+                time: new Date(newLive.timestamp).toLocaleTimeString(),
+                cpu: newLive.cpu_percent,
+                memory: newLive.memory.percent,
+                requests: newLive.requests?.requests_per_second ?? live.requests ?? 0,
+              };
+              const updated = [...prev, newPoint];
+              return updated.slice(-20); // keep last 20 points
+            });
           } catch (e) {
             console.error('Failed to fetch live metrics:', e);
           }
@@ -262,9 +263,9 @@ export const Dashboard: React.FC = () => {
                 <XAxis dataKey="time" stroke="#a0a0a0" />
                 <YAxis stroke="#a0a0a0" />
                 <Tooltip content={renderLineTooltip} />
-                <Line type="monotone" dataKey="cpu" stroke="#00d4ff" strokeWidth={3} isAnimationActive={true} />
-                <Line type="monotone" dataKey="memory" stroke="#00ff88" strokeWidth={3} isAnimationActive={true} />
-                <Line type="monotone" dataKey="requests" stroke="#ffaa00" strokeWidth={3} isAnimationActive={true} />
+                <Line type="monotone" dataKey="cpu" stroke="#00d4ff" strokeWidth={3} isAnimationActive={false} />
+                <Line type="monotone" dataKey="memory" stroke="#00ff88" strokeWidth={3} isAnimationActive={false} />
+                <Line type="monotone" dataKey="requests" stroke="#ffaa00" strokeWidth={3} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>

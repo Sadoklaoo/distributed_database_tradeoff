@@ -7,6 +7,8 @@ from datetime import datetime
 import psutil 
 from app.utils.logger_utils import log_info
 from app.routes.performance_routes import run_performance_test_endpoint
+from app.utils.request_stats import get_request_stats
+
 
 REPORT_DIR = "logs/performance_reports"
 router = APIRouter()
@@ -73,23 +75,20 @@ def latest_report():
 # 🧠 New route: Live system performance metrics
 @router.get("/metrics/live")
 def get_live_metrics():
-    """
-    Return current system performance metrics such as CPU, memory, and disk usage.
-    Useful for dashboard live updates.
-    """
     try:
-        cpu_percent = psutil.cpu_percent(interval=0.5)
-        memory = psutil.virtual_memory()
+        cpu_percent = psutil.cpu_percent(interval=0.3)
+        mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
-        net_io = psutil.net_io_counters()
+        net = psutil.net_io_counters()
+        req_stats = get_request_stats()  # 👈 pulls requests/sec and resets counter
 
-        metrics = {
+        return {
             "timestamp": datetime.utcnow().isoformat(),
             "cpu_percent": cpu_percent,
             "memory": {
-                "total": memory.total,
-                "used": memory.used,
-                "percent": memory.percent,
+                "total": mem.total,
+                "used": mem.used,
+                "percent": mem.percent,
             },
             "disk": {
                 "total": disk.total,
@@ -97,11 +96,10 @@ def get_live_metrics():
                 "percent": disk.percent,
             },
             "network": {
-                "bytes_sent": net_io.bytes_sent,
-                "bytes_recv": net_io.bytes_recv,
+                "bytes_sent": net.bytes_sent,
+                "bytes_recv": net.bytes_recv,
             },
+            "requests": req_stats
         }
-
-        return metrics
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve live metrics: {e}")
