@@ -1,5 +1,6 @@
 # controller/main.py
-from datetime import time
+
+import time
 import os
 from threading import Lock
 from fastapi import FastAPI, Request
@@ -41,9 +42,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 @app.middleware("http")
-async def count_requests(request: Request, call_next):
+async def track_request(request: Request, call_next):
+    start = time.time()
     response = await call_next(request)
-    increment_request_count()
+    duration = time.time() - start
+
+    path = request.url.path
+    if "/mongo/" in path:
+        increment_request_count("mongo", duration)
+    elif "/cassandra/" in path:
+        increment_request_count("cassandra", duration)
+    else:
+        increment_request_count("general", duration)
+
     return response
 
 # Include routes

@@ -31,7 +31,15 @@ export const Dashboard: React.FC = () => {
   const [liveMetrics, setLiveMetrics] = useState<any>(null);
   const [liveChartData, setLiveChartData] = useState<Array<{ time: string; cpu: number; memory: number; requests: number }>>([]);
 
-  const prevNetworkRef = useRef<number | null>(null);
+  const [responseTimeData, setResponseTimeData] = useState([
+    { database: 'MongoDB', responseTime: 0 },
+    { database: 'Cassandra', responseTime: 0 }
+  ]);
+
+  const [throughputData, setThroughputData] = useState([
+    { database: 'MongoDB', throughput: 0 },
+    { database: 'Cassandra', throughput: 0 }
+  ]);
   const liveInterval = useRef<any>(null);
 
   useEffect(() => {
@@ -59,7 +67,7 @@ export const Dashboard: React.FC = () => {
           time: new Date(live.timestamp).toLocaleTimeString(),
           cpu: live.cpu_percent,
           memory: live.memory.percent,
-          requests: live.requests?.requests_per_second ?? live.requests ?? 0,
+          requests: live.requests?.throughput  ??  0,
         };
         setLiveChartData([firstPoint]);
 
@@ -68,17 +76,33 @@ export const Dashboard: React.FC = () => {
           try {
             const newLive = await fetchJson<any>('/api/report/metrics/live');
             setLiveMetrics(newLive);
+
+             // --- Safe numeric extraction ---
+            const mongo = newLive.mongo || { throughput: 0, avg_latency: 0 };
+            const cassandra = newLive.cassandra || { throughput: 0, avg_latency: 0 };
             // Add new point to chart
             setLiveChartData(prev => {
               const newPoint = {
                 time: new Date(newLive.timestamp).toLocaleTimeString(),
                 cpu: newLive.cpu_percent,
                 memory: newLive.memory.percent,
-                requests: newLive.requests?.requests_per_second ?? live.requests ?? 0,
+                requests: mongo.throughput ?? 0,
               };
               const updated = [...prev, newPoint];
               return updated.slice(-20); // keep last 20 points
             });
+
+            // --- Update Throughput & Response Time charts ---
+            setResponseTimeData([
+              { database: 'MongoDB', responseTime: mongo.avg_latency  ?? 0 },
+              { database: 'Cassandra', responseTime: cassandra.avg_latency  ?? 0 }
+            ]);
+
+            setThroughputData([
+              { database: 'MongoDB', throughput: mongo.throughput ?? 0 },
+              { database: 'Cassandra', throughput: cassandra.throughput ?? 0 }
+            ]);
+
           } catch (e) {
             console.error('Failed to fetch live metrics:', e);
           }
@@ -255,7 +279,7 @@ export const Dashboard: React.FC = () => {
       {/* Charts Section */}
       <section className="charts-section">
         <div className="chart-card">
-          <h2><TrendingUp className="w-6 h-6" />System Performance Metrics (Live)</h2>
+          <h2><TrendingUp className="w-6 h-6" />System Performance Metrics </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={liveChartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
@@ -277,7 +301,7 @@ export const Dashboard: React.FC = () => {
         <div className="chart-card">
           <h2>
             <Database className="w-6 h-6" />
-            MongoDB Cluster Activity (Live)
+            MongoDB Cluster Activity 
           </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
@@ -304,7 +328,7 @@ export const Dashboard: React.FC = () => {
         <div className="chart-card">
           <h2>
             <HardDrive className="w-6 h-6" />
-            Cassandra Cluster Activity (Live)
+            Cassandra Cluster Activity 
           </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
@@ -335,14 +359,11 @@ export const Dashboard: React.FC = () => {
         <div className="chart-card">
           <h2>
             <Clock className="w-6 h-6" />
-            Response Time Comparison (Live Data)
+            Response Time Comparison 
           </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={[
-                { database: 'MongoDB', responseTime: mongoStatus?.members?.length ? 2.5 : 0 },
-                { database: 'Cassandra', responseTime: cassandraStatus?.peers?.length ? 1.8 : 0 }
-              ]}>
+              <BarChart data={responseTimeData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="database" stroke="#a0a0a0" fontSize={12} />
                 <YAxis stroke="#a0a0a0" fontSize={12} />
@@ -363,14 +384,11 @@ export const Dashboard: React.FC = () => {
         <div className="chart-card">
           <h2>
             <Activity className="w-6 h-6" />
-            Throughput Comparison (Live Data)
+            Throughput Comparison
           </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={[
-                { database: 'MongoDB', throughput: mongoStatus?.members?.length ? 1200 : 0 },
-                { database: 'Cassandra', throughput: cassandraStatus?.peers?.length ? 1800 : 0 }
-              ]}>
+              <BarChart data={throughputData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis dataKey="database" stroke="#a0a0a0" fontSize={12} />
                 <YAxis stroke="#a0a0a0" fontSize={12} />
@@ -391,7 +409,7 @@ export const Dashboard: React.FC = () => {
         <div className="chart-card">
           <h2>
             <Shield className="w-6 h-6" />
-            Availability & Consistency (Live Data)
+            Availability & Consistency
           </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
@@ -420,7 +438,7 @@ export const Dashboard: React.FC = () => {
         <div className="chart-card">
           <h2>
             <HardDrive className="w-6 h-6" />
-            Cluster Health Overview (Live)
+            Cluster Health Overview
           </h2>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>

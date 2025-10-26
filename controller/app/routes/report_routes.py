@@ -80,7 +80,9 @@ def get_live_metrics():
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage("/")
         net = psutil.net_io_counters()
-        req_stats = get_request_stats()  # 👈 pulls requests/sec and resets counter
+        mongo_stats = get_request_stats("mongo")
+        cassandra_stats = get_request_stats("cassandra")
+     
 
         return {
             "timestamp": datetime.utcnow().isoformat(),
@@ -99,7 +101,9 @@ def get_live_metrics():
                 "bytes_sent": net.bytes_sent,
                 "bytes_recv": net.bytes_recv,
             },
-            "requests": req_stats
+            "requests": mongo_stats,
+            "mongo": mongo_stats,
+            "cassandra": cassandra_stats,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve live metrics: {e}")

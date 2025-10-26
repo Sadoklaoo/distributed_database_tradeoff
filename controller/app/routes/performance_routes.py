@@ -13,6 +13,7 @@ from app.cassandra_client import CassandraClient
 from app.utils.logger_utils import log_info, log_warn, log_error, tqdm_optional, run_in_executor
 from app.utils.report_utils import save_report_json, save_report_markdown
 from app.models.performance_test_models import PerformanceTestConfig, PerformanceTestResult
+from app.utils.request_stats import increment_request_count
 
 router = APIRouter()
 
@@ -73,12 +74,14 @@ async def test_mongodb_performance(config: PerformanceTestConfig):
             for doc in batch:
                 await mongo_client.insert_document("performance_test", doc)
             results["latencies"]["insert"].append(time.time() - t0)
+            increment_request_count("mongo", time.time() - t0)
 
             # Read
             if config.testType in ["mixed", "read"]:
                 t0 = time.time()
                 await mongo_client.find_documents("performance_test", {"status": "ACTIVE"})
                 results["latencies"]["read"].append(time.time() - t0)
+                increment_request_count("mongo", time.time() - t0)
 
             # Update
             if config.testType in ["mixed", "update"]:
@@ -86,6 +89,7 @@ async def test_mongodb_performance(config: PerformanceTestConfig):
                 for doc in batch:
                     await mongo_client.update_document("performance_test", {"id": doc["id"]}, {"status": "UPDATED"})
                 results["latencies"]["update"].append(time.time() - t0)
+                increment_request_count("mongo", time.time() - t0)
 
         except Exception as e:
             results["errors"] += 1
@@ -98,6 +102,7 @@ async def test_mongodb_performance(config: PerformanceTestConfig):
     total = time.time() - start
     results["throughput"] = config.operationCount / total if total > 0 else 0
     results["total_time"] = total
+   
     return results
 
 
@@ -123,21 +128,22 @@ async def test_cassandra_performance(config: PerformanceTestConfig):
             t0 = time.time()
             for doc in batch:
                 await run_in_executor(cassandra_client.insert_document, "performance_test", doc)
-            results["latencies"]["insert"].append(time.time() - t0)
+                results["latencies"]["insert"].append(time.time() - t0)
+                increment_request_count("cassandra", time.time() - t0)
 
             # Read
             if config.testType in ["mixed", "read"]:
                 t0 = time.time()
                 await run_in_executor(cassandra_client.find_documents, "performance_test", {"status": "ACTIVE"})
                 results["latencies"]["read"].append(time.time() - t0)
-
+                increment_request_count("cassandra", time.time() - t0)
             # Update
             if config.testType in ["mixed", "update"]:
                 t0 = time.time()
                 for doc in batch:
                     await run_in_executor(cassandra_client.update_document, "performance_test", {"id": doc["id"]}, {"status": "UPDATED"})
                 results["latencies"]["update"].append(time.time() - t0)
-
+                increment_request_count("cassandra", time.time() - t0)
         except Exception as e:
             results["errors"] += 1
             log_error(f"Cassandra error: {e}")
