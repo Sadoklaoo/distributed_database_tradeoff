@@ -7,7 +7,8 @@ import {
   Activity,
   AlertTriangle,
   Menu, 
-  X 
+  X, 
+  Clock
 } from 'lucide-react';
 
 export const Navigation: React.FC = () => {
@@ -19,6 +20,7 @@ export const Navigation: React.FC = () => {
     { path: '/mongodb', label: 'MongoDB', icon: Database },
     { path: '/cassandra', label: 'Cassandra', icon: HardDrive },
     { path: '/performance', label: 'Performance', icon: Activity },
+    { path: '/history', label: 'Performance History', icon: Clock },
     { path: '/failure-testing', label: 'Failure Testing', icon: AlertTriangle },
   ];
 
