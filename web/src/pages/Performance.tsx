@@ -175,6 +175,7 @@ const throughputData = (testResults?.throughputMetrics || []).map((item: any) =>
           )}
         </button>
       </section>
+      
        {showPopup && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50">
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center w-96 animate-fadeIn">
