@@ -150,9 +150,9 @@ const throughputData = (testResults?.throughputMetrics || []).map((item: any) =>
               className="form-input"
             >
               <option value="mixed">Mixed Operations</option>
-              <option value="read-heavy">Read Heavy</option>
-              <option value="write-heavy">Write Heavy</option>
-              <option value="update-heavy">Update Heavy</option>
+              <option value="read">Read Heavy</option>
+              <option value="write">Write Heavy</option>
+              <option value="update">Update Heavy</option>
             </select>
             
           </div>

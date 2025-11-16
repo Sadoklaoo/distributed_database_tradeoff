@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class PerformanceTestConfig(BaseModel):
     operationCount: int = Field(default=1000, gt=0, le=10000)
     batchSize: int = Field(default=100, gt=0, le=1000)
-    consistencyLevel: str = Field(default="eventual", pattern="^(eventual|strong)$")
+    consistencyLevel: str = Field(default="eventual", pattern="^(eventual|strong|session)$")
     testType: str = Field(default="mixed", pattern="^(mixed|read|write|update)$")
 
 

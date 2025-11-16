@@ -21,7 +21,7 @@ def save_report_json(prefix: str, timestamp: str, data: dict):
     return path
 
 
-def save_report_markdown(prefix: str, timestamp: str, summary: dict, latency: list, throughput: list):
+def save_report_markdown(prefix: str, timestamp: str, summary: dict, latency: list, throughput: list,config_dict: dict = None):
     """Save performance report as Markdown"""
     ensure_dir()
     path = os.path.join(REPORT_DIR, f"{prefix}_{timestamp}.md")
@@ -32,6 +32,12 @@ def save_report_markdown(prefix: str, timestamp: str, summary: dict, latency: li
 
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# Performance Report ({timestamp})\n\n")
+
+        f.write(f"**Timestamp:** {timestamp}\n\n")
+        if config_dict:
+            f.write("**Configuration Used:**\n")
+            for k, v in config_dict.items():
+                f.write(f"- {k}: {v}\n")
 
         f.write("## Summary\n")
         for k, v in summary.items():
