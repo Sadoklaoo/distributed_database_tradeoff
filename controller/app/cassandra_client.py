@@ -309,3 +309,24 @@ def get_cluster_info():
 
     cluster.shutdown()
     return {"local": local, "peers": peers}
+
+async def insert_generic_document(self, table: str, document: dict):
+    """Generic insert for any document structure - for monitoring/health checks"""
+    self.ensure_connected()
+    try:
+        # Convert document to columns/values
+        columns = list(document.keys())
+        placeholders = ['?'] * len(columns)
+        values = list(document.values())
+        
+        query = f"INSERT INTO {self.keyspace}.{table} ({', '.join(columns)}) VALUES ({', '.join(placeholders)})"
+        
+        # Use prepared statement
+        if query not in self._prepared_cache:
+            self._prepared_cache[query] = self.session.prepare(query)
+        
+        self.session.execute(self._prepared_cache[query], values)
+        return True
+    except Exception as e:
+        print(f"❌ Generic insert error: {e}")
+        raise

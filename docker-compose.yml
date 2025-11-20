@@ -25,6 +25,8 @@ services:
       - cassandra1
       - cassandra2
       - cassandra3
+    networks:
+      - db-network
     command: >
       bash -c "pip install cassandra-driver &&
               python -c \"import time; from cassandra.cluster import Cluster; cluster = Cluster(['cassandra1','cassandra2','cassandra3']); 
@@ -46,6 +48,8 @@ services:
       dockerfile: Dockerfile.dev
     container_name: web_frontend
     restart: always
+    networks:
+      - db-network
     ports:
       - "5173:5173"
     volumes:
@@ -61,6 +65,8 @@ services:
     image: mongo:6.0
     container_name: mongo1
     restart: always
+    networks:
+      - db-network
     ports:
       - "27017:27017"
     volumes:
@@ -72,6 +78,8 @@ services:
     image: mongo:6.0
     container_name: mongo2
     restart: always
+    networks:
+      - db-network
     ports:
       - "27018:27017"
     volumes:
@@ -84,6 +92,8 @@ services:
     image: mongo:6.0
     container_name: mongo3
     restart: always
+    networks:
+      - db-network
     ports:
       - "27019:27017"
     volumes:
@@ -97,6 +107,8 @@ services:
     image: cassandra:4.1
     container_name: cassandra1
     restart: always
+    networks:
+      - db-network
     environment:
       - MAX_HEAP_SIZE=1024M
       - HEAP_NEWSIZE=128M
@@ -120,6 +132,8 @@ services:
     image: cassandra:4.1
     container_name: cassandra2
     restart: always
+    networks:
+      - db-network
     environment:
       - MAX_HEAP_SIZE=1024M
       - HEAP_NEWSIZE=128M
@@ -144,6 +158,8 @@ services:
     image: cassandra:4.1
     container_name: cassandra3
     restart: always
+    networks:
+      - db-network
     environment:
       - MAX_HEAP_SIZE=1024M
       - HEAP_NEWSIZE=128M
@@ -163,3 +179,7 @@ services:
     volumes:
       - ./data/cassandra3:/var/lib/cassandra
       - ./scripts:/docker-entrypoint-initdb.d
+networks:
+  db-network:
+    driver: bridge
+    name: distributed_db_network 
