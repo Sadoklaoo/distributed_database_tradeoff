@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { FileText, RefreshCw, Eye, Download, Gauge } from "lucide-react";
+import { FileText, RefreshCw, Eye, Download } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -9,8 +9,6 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  LineChart,
-  Line,
 } from "recharts";
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
@@ -19,7 +17,7 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 const formatDateFromFilename = (filename: string) => {
   const match = filename.match(/(\d{8})_(\d{6})/);
@@ -54,8 +52,8 @@ const renderConsistencyBadge = (value?: string) => {
 };
 
 const renderReadTargetBadge = (secondary?: boolean) => {
-  const label = secondary ? "SECONDARY" : "PRIMARY";
-  const color = secondary ? "#ff6b6b" : "#00d4ff";
+  const label = secondary === undefined ? "N/A" : secondary ? "SECONDARY" : "PRIMARY";
+  const color = secondary === undefined ? "#888" : secondary ? "#ff6b6b" : "#00d4ff";
   return (
     <span
       style={{
@@ -84,6 +82,7 @@ const tooltipStyle = {
 
 export const StalenessHistory: React.FC = () => {
   const [reports, setReports] = useState<string[]>([]);
+  const [reportsMeta, setReportsMeta] = useState<Record<string, any>>({});
   const [selectedReport, setSelectedReport] = useState<string | null>(null);
   const [reportData, setReportData] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
@@ -95,6 +94,20 @@ export const StalenessHistory: React.FC = () => {
       setError(null);
       const files = await fetchJson<string[]>("/api/staleness/reports");
       setReports(files);
+
+      // fetch config metadata for each report in parallel
+      const meta: Record<string, any> = {};
+      await Promise.all(
+        files.map(async (file) => {
+          try {
+            const json = await fetchJson<any>(`/api/staleness/reports/${file}`);
+            meta[file] = json.config || {};
+          } catch {
+            meta[file] = {};
+          }
+        })
+      );
+      setReportsMeta(meta);
     } catch (e: any) {
       setError(e.message || String(e));
     } finally {
@@ -120,54 +133,28 @@ export const StalenessHistory: React.FC = () => {
     loadReports();
   }, []);
 
-  // ── modal chart data ────────────────────────────────────────────────────────
+  // ── modal chart data ──────────────────────────────────────────────────────
 
   const latencyChartData = useMemo(() => {
     if (!reportData) return [];
     return [
-      {
-        metric: "Mean",
-        MongoDB: reportData.mongodb?.mean_ms ?? 0,
-        Cassandra: reportData.cassandra?.mean_ms ?? 0,
-      },
-      {
-        metric: "Median",
-        MongoDB: reportData.mongodb?.median_ms ?? 0,
-        Cassandra: reportData.cassandra?.median_ms ?? 0,
-      },
-      {
-        metric: "P95",
-        MongoDB: reportData.mongodb?.p95_ms ?? 0,
-        Cassandra: reportData.cassandra?.p95_ms ?? 0,
-      },
-      {
-        metric: "P99",
-        MongoDB: reportData.mongodb?.p99_ms ?? 0,
-        Cassandra: reportData.cassandra?.p99_ms ?? 0,
-      },
-      {
-        metric: "Max",
-        MongoDB: reportData.mongodb?.max_ms ?? 0,
-        Cassandra: reportData.cassandra?.max_ms ?? 0,
-      },
+      { metric: "Mean",   MongoDB: reportData.mongodb?.mean_ms   ?? 0, Cassandra: reportData.cassandra?.mean_ms   ?? 0 },
+      { metric: "Median", MongoDB: reportData.mongodb?.median_ms ?? 0, Cassandra: reportData.cassandra?.median_ms ?? 0 },
+      { metric: "P95",    MongoDB: reportData.mongodb?.p95_ms    ?? 0, Cassandra: reportData.cassandra?.p95_ms    ?? 0 },
+      { metric: "P99",    MongoDB: reportData.mongodb?.p99_ms    ?? 0, Cassandra: reportData.cassandra?.p99_ms    ?? 0 },
+      { metric: "Max",    MongoDB: reportData.mongodb?.max_ms    ?? 0, Cassandra: reportData.cassandra?.max_ms    ?? 0 },
     ];
   }, [reportData]);
 
   const staleRatioData = useMemo(() => {
     if (!reportData) return [];
     return [
-      {
-        db: "MongoDB",
-        "Stale %": +((reportData.mongodb?.stale_ratio ?? 0) * 100).toFixed(1),
-      },
-      {
-        db: "Cassandra",
-        "Stale %": +((reportData.cassandra?.stale_ratio ?? 0) * 100).toFixed(1),
-      },
+      { db: "MongoDB",   "Stale %": +((reportData.mongodb?.stale_ratio   ?? 0) * 100).toFixed(1) },
+      { db: "Cassandra", "Stale %": +((reportData.cassandra?.stale_ratio ?? 0) * 100).toFixed(1) },
     ];
   }, [reportData]);
 
-  // ── render ──────────────────────────────────────────────────────────────────
+  // ── render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="container">
@@ -216,10 +203,9 @@ export const StalenessHistory: React.FC = () => {
                   <td>{i + 1}</td>
                   <td className="font-mono text-xs">{file}</td>
                   <td>{formatDateFromFilename(file)}</td>
-                  {/* We don't have metadata without fetching — show filename-derived info */}
-                  <td>—</td>
-                  <td>—</td>
-                  <td>—</td>
+                  <td>{renderConsistencyBadge(reportsMeta[file]?.consistency)}</td>
+                  <td>{renderReadTargetBadge(reportsMeta[file]?.mongo_read_secondary)}</td>
+                  <td>{reportsMeta[file]?.iterations ?? "—"}</td>
                   <td>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button
@@ -254,17 +240,14 @@ export const StalenessHistory: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Modal ──────────────────────────────────────────────────────────── */}
+      {/* ── Modal ─────────────────────────────────────────────────────────── */}
       {selectedReport && reportData && (
         <div className="modal-overlay">
           <div className="modal" style={{ width: "95%", maxWidth: 1100 }}>
             <div className="modal-header">
               <h2>{selectedReport}</h2>
               <button
-                onClick={() => {
-                  setSelectedReport(null);
-                  setReportData(null);
-                }}
+                onClick={() => { setSelectedReport(null); setReportData(null); }}
                 className="btn-icon"
               >
                 ×

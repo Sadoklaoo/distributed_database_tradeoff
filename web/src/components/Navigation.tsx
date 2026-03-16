@@ -32,6 +32,9 @@ export const Navigation: React.FC = () => {
     if (path === '/') {
       return location.pathname === '/';
     }
+    if (path === '/staleness') {
+    return location.pathname === '/staleness';
+  }
     return location.pathname.startsWith(path);
   };
 
