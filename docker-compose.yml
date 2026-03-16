@@ -18,6 +18,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./logs:/app/logs
+      - ./controller:/app
     depends_on:
       - mongo1
       - mongo2

@@ -7,6 +7,8 @@ import { Cassandra } from './pages/Cassandra';
 import { Performance } from './pages/Performance';
 import { FailureTesting } from './pages/FailureTesting';
 import { PerformanceHistory } from './pages/PerformanceHistory';
+import { Staleness } from './pages/Staleness';
+import { StalenessHistory } from './pages/StalenessHistory';
 
 export const App: React.FC = () => {
   return (
@@ -20,6 +22,8 @@ export const App: React.FC = () => {
           <Route path="/performance" element={<Performance />} />
           <Route path="/history" element={<PerformanceHistory />} />
           <Route path="/failure-testing" element={<FailureTesting />} />
+          <Route path="/staleness" element={<Staleness />} />
+          <Route path="/staleness-history" element={<StalenessHistory />} />
         </Routes>
       </main>
     </div>

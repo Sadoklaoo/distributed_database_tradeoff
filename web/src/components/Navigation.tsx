@@ -8,7 +8,9 @@ import {
   AlertTriangle,
   Menu, 
   X, 
-  Clock
+  Clock,
+  Gauge,
+  FileText
 } from 'lucide-react';
 
 export const Navigation: React.FC = () => {
@@ -22,6 +24,8 @@ export const Navigation: React.FC = () => {
     { path: '/performance', label: 'Performance', icon: Activity },
     { path: '/history', label: 'Performance History', icon: Clock },
     { path: '/failure-testing', label: 'Failure Testing', icon: AlertTriangle },
+    { path: '/staleness', label: 'Staleness', icon: Gauge },
+    { path: '/staleness-history', label: 'Staleness History', icon: FileText  },
   ];
 
   const isActive = (path: string) => {
