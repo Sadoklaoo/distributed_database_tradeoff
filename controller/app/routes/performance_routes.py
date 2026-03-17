@@ -43,24 +43,32 @@ async def generate_test_data(count: int) -> List[Dict[str, Any]]:
 
 def create_cassandra_test_table():
     cassandra_client.ensure_connected()
-    query = f"""
-    CREATE TABLE IF NOT EXISTS {cassandra_client.keyspace}.performance_test (
-        id uuid PRIMARY KEY,
-        name text,
-        status text,
-        type text,
-        value double,
-        timestamp text
-    )
-    """
-    cassandra_client.session.execute(query)
+    cassandra_client.session.execute(f"""
+        CREATE TABLE IF NOT EXISTS {cassandra_client.keyspace}.performance_test (
+            id uuid PRIMARY KEY,
+            name text,
+            status text,
+            type text,
+            value double,
+            timestamp text
+        )
+    """)
+    # Secondary index on status for fair read comparison (thesis Fix 2)
+    cassandra_client.session.execute(f"""
+        CREATE INDEX IF NOT EXISTS perf_test_status_idx
+        ON {cassandra_client.keyspace}.performance_test (status)
+    """)
 
 
 # ---------------------------
 # MongoDB Performance Test
 # ---------------------------
 async def test_mongodb_performance(config: PerformanceTestConfig):
-    results = {"latencies": {"insert": [], "read": [], "update": []}, "errors": 0, "total_operations": config.operationCount}
+    results = {
+        "latencies": {"insert": [], "read": [], "update": []},
+        "errors": 0,
+        "total_operations": config.operationCount
+    }
     await mongo_client.connect()
     test_data = await generate_test_data(config.operationCount)
     start = time.time()
@@ -71,26 +79,30 @@ async def test_mongodb_performance(config: PerformanceTestConfig):
         try:
             # Insert
             for doc in batch:
-                t0 = time.time()
+                t0 = time.monotonic()
                 await mongo_client.insert_document("performance_test", doc)
-                latency = time.time() - t0
+                latency = time.monotonic() - t0
                 results["latencies"]["insert"].append(latency)
                 increment_request_count("mongo", latency)
 
             # Read
             if config.testType in ["mixed", "read"]:
-                t0 = time.time()
+                t0 = time.monotonic()
                 docs = await mongo_client.find_documents("performance_test", {"status": "ACTIVE"})
-                latency = time.time() - t0
+                latency = time.monotonic() - t0
                 results["latencies"]["read"].append(latency)
                 increment_request_count("mongo", latency)
 
             # Update
             if config.testType in ["mixed", "update"]:
                 for doc in batch:
-                    t0 = time.time()
-                    await mongo_client.update_document("performance_test", {"id": doc["id"]}, {"status": "UPDATED"})
-                    latency = time.time() - t0
+                    t0 = time.monotonic()
+                    await mongo_client.update_document(
+                        "performance_test",
+                        {"id": doc["id"]},
+                        {"status": "UPDATED"}
+                    )
+                    latency = time.monotonic() - t0
                     results["latencies"]["update"].append(latency)
                     increment_request_count("mongo", latency)
 
@@ -105,7 +117,6 @@ async def test_mongodb_performance(config: PerformanceTestConfig):
     total = time.time() - start
     results["throughput"] = config.operationCount / total if total > 0 else 0
     results["total_time"] = total
-   
     return results
 
 
@@ -113,7 +124,11 @@ async def test_mongodb_performance(config: PerformanceTestConfig):
 # Cassandra Performance Test
 # ---------------------------
 async def test_cassandra_performance(config: PerformanceTestConfig):
-    results = {"latencies": {"insert": [], "read": [], "update": []}, "errors": 0, "total_operations": config.operationCount}
+    results = {
+        "latencies": {"insert": [], "read": [], "update": []},
+        "errors": 0,
+        "total_operations": config.operationCount
+    }
     await run_in_executor(cassandra_client.ensure_connected)
     await run_in_executor(create_cassandra_test_table)
     test_data = await generate_test_data(config.operationCount)
@@ -123,32 +138,44 @@ async def test_cassandra_performance(config: PerformanceTestConfig):
     for i in range(0, len(test_data), config.batchSize):
         batch = test_data[i:i + config.batchSize]
         try:
-            # Convert id to UUID
+            # Convert id strings to UUID objects
             for doc in batch:
                 doc["id"] = uuid.UUID(doc["id"])
 
             # Insert
             for doc in batch:
-                t0 = time.time()
-                await run_in_executor(cassandra_client.insert_document, "performance_test", doc)
-                latency = time.time() - t0
+                t0 = time.monotonic()
+                await run_in_executor(
+                    cassandra_client.insert_document, "performance_test", doc
+                )
+                latency = time.monotonic() - t0
                 results["latencies"]["insert"].append(latency)
                 increment_request_count("cassandra", latency)
 
-            # Read
+            # Read — t0 correctly set before read call
             if config.testType in ["mixed", "read"]:
-                docs = await run_in_executor(cassandra_client.find_documents, "performance_test", {"status": "ACTIVE"})
-                latency = time.time() - t0
+                t0 = time.monotonic()
+                docs = await run_in_executor(
+                    cassandra_client.find_documents, "performance_test", {"status": "ACTIVE"}
+                )
+                latency = time.monotonic() - t0
                 results["latencies"]["read"].append(latency)
                 increment_request_count("cassandra", latency)
+
             # Update
             if config.testType in ["mixed", "update"]:
                 for doc in batch:
-                    t0 = time.time()
-                    await run_in_executor(cassandra_client.update_document, "performance_test", {"id": doc["id"]}, {"status": "UPDATED"})
-                    latency = time.time() - t0
+                    t0 = time.monotonic()
+                    await run_in_executor(
+                        cassandra_client.update_document,
+                        "performance_test",
+                        {"id": doc["id"]},
+                        {"status": "UPDATED"}
+                    )
+                    latency = time.monotonic() - t0
                     results["latencies"]["update"].append(latency)
                     increment_request_count("cassandra", latency)
+
         except Exception as e:
             results["errors"] += 1
             log_error(f"Cassandra error: {e}")
@@ -174,7 +201,9 @@ async def cleanup_data():
         log_warn(f"MongoDB cleanup failed: {e}")
     try:
         await run_in_executor(create_cassandra_test_table)
-        cassandra_client.session.execute(f"TRUNCATE {cassandra_client.keyspace}.performance_test")
+        cassandra_client.session.execute(
+            f"TRUNCATE {cassandra_client.keyspace}.performance_test"
+        )
     except Exception as e:
         log_warn(f"Cassandra cleanup failed: {e}")
 
@@ -186,21 +215,26 @@ async def cleanup_data():
 async def run_performance_test_endpoint(config: PerformanceTestConfig = Body(...)):
     await cleanup_data()
     mongo_task = asyncio.create_task(test_mongodb_performance(config))
-    cass_task = asyncio.create_task(test_cassandra_performance(config))
+    cass_task  = asyncio.create_task(test_cassandra_performance(config))
     mongo_results, cassandra_results = await asyncio.gather(mongo_task, cass_task)
 
-    # Prepare latency metrics
     latency_metrics = []
     for op in ["insert", "read", "update"]:
         latency_metrics.append({
             "operation": op,
-            "mongodb": statistics.mean(mongo_results["latencies"].get(op, [])) if mongo_results["latencies"].get(op) else 0,
-            "cassandra": statistics.mean(cassandra_results["latencies"].get(op, [])) if cassandra_results["latencies"].get(op) else 0,
+            "mongodb": (
+                statistics.mean(mongo_results["latencies"].get(op, []))
+                if mongo_results["latencies"].get(op) else 0
+            ),
+            "cassandra": (
+                statistics.mean(cassandra_results["latencies"].get(op, []))
+                if cassandra_results["latencies"].get(op) else 0
+            ),
         })
 
     throughput_metrics = [
-        {"db": "MongoDB", "throughput": mongo_results["throughput"]},
-        {"db": "Cassandra", "throughput": cassandra_results["throughput"]}
+        {"db": "MongoDB",   "throughput": mongo_results["throughput"]},
+        {"db": "Cassandra", "throughput": cassandra_results["throughput"]},
     ]
 
     summary = {
@@ -208,10 +242,16 @@ async def run_performance_test_endpoint(config: PerformanceTestConfig = Body(...
         "errors": mongo_results["errors"] + cassandra_results["errors"]
     }
 
-    # Save reports (pass config.dict() explicitly)
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    save_report_markdown("performance", timestamp, summary, latency_metrics, throughput_metrics, config_dict=config.dict())
-    save_report_json("performance", timestamp, {"mongo": mongo_results, "cassandra": cassandra_results, "config": config.dict()})
+    save_report_markdown(
+        "performance", timestamp, summary,
+        latency_metrics, throughput_metrics,
+        config_dict=config.dict()
+    )
+    save_report_json(
+        "performance", timestamp,
+        {"mongo": mongo_results, "cassandra": cassandra_results, "config": config.dict()}
+    )
 
     return PerformanceTestResult(
         summary=summary,
@@ -219,7 +259,6 @@ async def run_performance_test_endpoint(config: PerformanceTestConfig = Body(...
         throughputMetrics=throughput_metrics,
         detailedResults={"mongo": mongo_results, "cassandra": cassandra_results}
     )
-
 
 
 @router.post("/cleanup")
@@ -234,4 +273,9 @@ def test_latency(db: str = Query(..., description="Database type: mongo or cassa
     latency = 0.05 if db == "mongo" else 0.15
     log_info(f"Latency test for {db}: {latency}s")
     duration = time.time() - start
-    return {"db": db, "latency": latency, "test_duration": round(duration, 4), "status": "success"}
+    return {
+        "db": db,
+        "latency": latency,
+        "test_duration": round(duration, 4),
+        "status": "success"
+    }

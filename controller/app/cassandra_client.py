@@ -145,7 +145,7 @@ class CassandraClient:
 
         if filters:
             conditions = " AND ".join([f"{k} = ?" for k in filters.keys()])
-            query = f"SELECT * FROM {self.keyspace}.{table} WHERE {conditions} ALLOW FILTERING"
+            query = f"SELECT * FROM {self.keyspace}.{table} WHERE {conditions} "
             values = list(filters.values())
         else:
             query = f"SELECT * FROM {self.keyspace}.{table}"
