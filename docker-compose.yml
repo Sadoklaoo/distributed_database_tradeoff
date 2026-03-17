@@ -19,6 +19,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./logs:/app/logs
       - ./controller:/app
+      - ./scripts:/app/scripts
     depends_on:
       - mongo1
       - mongo2
@@ -28,20 +29,7 @@ services:
       - cassandra3
     networks:
       - db-network
-    command: >
-      bash -c "pip install cassandra-driver &&
-              python -c \"import time; from cassandra.cluster import Cluster; cluster = Cluster(['cassandra1','cassandra2','cassandra3']); 
-      while True:
-          try:
-              cluster.connect()
-              print('✅ Cassandra cluster connected!')
-              break
-          except Exception as e:
-              print('⏳ Waiting for Cassandra cluster...', e)
-              time.sleep(5)
-      \" &&
-                echo '🚀 Starting FastAPI controller...' &&
-                uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    
   # Web Frontend
   web:
     build:
@@ -74,6 +62,7 @@ services:
       - ./data/mongo1:/data/db
       - ./scripts/rs-init.js:/docker-entrypoint-initdb.d/rs-init.js:ro
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    
 
   mongo2:
     image: mongo:6.0
@@ -88,7 +77,7 @@ services:
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     depends_on:
       - mongo1
-
+    
   mongo3:
     image: mongo:6.0
     container_name: mongo3
@@ -102,6 +91,7 @@ services:
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     depends_on:
       - mongo1
+    
 
   # Cassandra Cluster
   cassandra1:

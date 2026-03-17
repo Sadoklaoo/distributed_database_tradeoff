@@ -14,7 +14,7 @@ from app.routes.dashboard import router as dashboard_router
 from app.routes.staleness_routes import router as staleness_router
 from app.mongo_client import MongoDBClient
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.routes.recovery_benchmark import router as recovery_router
 from app.utils.request_stats import increment_request_count
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo1:27017")
@@ -67,6 +67,7 @@ app.include_router(failure_router, prefix="/api/failure", tags=["Failure Testing
 app.include_router(report_router, prefix="/api/report", tags=["Report Generation"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(staleness_router, prefix="/api/staleness", tags=["Staleness Testing"])
+app.include_router(recovery_router, prefix="/api/benchmark", tags=["Recovery Benchmark"])
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "message": "Controller API is running!"}
