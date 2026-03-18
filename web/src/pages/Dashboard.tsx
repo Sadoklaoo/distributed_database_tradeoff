@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   Server, Database, Activity, HardDrive,
-  TrendingUp, Clock, Shield
+  TrendingUp, Clock, Shield, RefreshCw, Timer
 } from 'lucide-react';
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis,

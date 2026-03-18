@@ -82,7 +82,6 @@ def get_live_metrics():
         net = psutil.net_io_counters()
         mongo_stats = get_request_stats("mongo")
         cassandra_stats = get_request_stats("cassandra")
-     
 
         return {
             "timestamp": datetime.utcnow().isoformat(),
