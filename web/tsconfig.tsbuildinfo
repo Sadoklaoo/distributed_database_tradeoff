@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/navigation.tsx","./src/pages/cassandra.tsx","./src/pages/dashboard.tsx","./src/pages/failuretesting.tsx","./src/pages/mongodb.tsx","./src/pages/performance.tsx","./src/pages/performancehistory.tsx","./src/pages/staleness.tsx","./src/pages/stalenesshistory.tsx"],"errors":true,"version":"5.6.3"}

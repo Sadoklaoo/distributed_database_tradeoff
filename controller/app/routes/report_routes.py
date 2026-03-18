@@ -72,6 +72,17 @@ def latest_report():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/metrics/latest")
+def latest_metrics_report():
+    """Fetch the most recently generated performance report (same as /latest)."""
+    try:
+        latest = get_latest_report()
+        if not latest:
+            raise HTTPException(status_code=404, detail="No reports found.")
+        return {"latest_report": latest}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # 🧠 New route: Live system performance metrics
 @router.get("/metrics/live")
 def get_live_metrics():

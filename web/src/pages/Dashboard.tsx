@@ -4,14 +4,25 @@ import {
   TrendingUp, Clock, Shield, RefreshCw, Timer
 } from 'lucide-react';
 import {
-  LineChart, Line, AreaChart, Area, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar
+  LineChart, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, BarChart, Bar, Legend
 } from 'recharts';
 
 type Health = { status: string; message?: string };
 type CassandraStatus = {
-  local: { host_id: string; data_center: string | null; rack: string | null; broadcast_address: string | null };
-  peers: Array<{ peer: string; data_center: string | null; host_id: string | null; rpc_address: string | null }>;
+  local: {
+    host_id: string;
+    data_center: string | null;
+    rack: string | null;
+    broadcast_address: string | null;
+  };
+  peers: Array<{
+    peer: string;
+    data_center: string | null;
+    host_id: string | null;
+    rpc_address: string | null;
+  }>;
 };
 
 async function fetchJson<T>(path: string): Promise<T> {
@@ -24,15 +35,25 @@ export const Dashboard: React.FC = () => {
   const [controllerHealth, setControllerHealth] = useState<Health | null>(null);
   const [mongoStatus, setMongoStatus] = useState<any>(null);
   const [cassandraStatus, setCassandraStatus] = useState<CassandraStatus | null>(null);
-  const [containerUptimes, setContainerUptimes] = useState<Record<string, { hours: number; seconds: number; status: string }>>({});
+  const [containerUptimes, setContainerUptimes] = useState<
+    Record<string, { hours: number; seconds: number; status: string }>
+  >({});
   const [liveData, setLiveData] = useState<{
     timestamp: string;
     cpu: number;
     memory: number;
-    mongo: { throughput: number; avg_latency: number };
-    cassandra: { throughput: number; avg_latency: number };
-  }>({ timestamp: '', cpu: 0, memory: 0, mongo: { throughput: 0, avg_latency: 0 }, cassandra: { throughput: 0, avg_latency: 0 } });
-  const [liveChartData, setLiveChartData] = useState<Array<{ time: string; cpu: number; memory: number; requests: number }>>([]);
+    mongo: { throughput: number | null; avg_latency: number | null };
+    cassandra: { throughput: number | null; avg_latency: number | null };
+  }>({
+    timestamp: '',
+    cpu: 0,
+    memory: 0,
+    mongo: { throughput: null, avg_latency: null },
+    cassandra: { throughput: null, avg_latency: null },
+  });
+  const [liveChartData, setLiveChartData] = useState<
+    Array<{ time: string; cpu: number; memory: number; requests: number }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,86 +62,144 @@ export const Dashboard: React.FC = () => {
     mongo_throughput: 0,
     cassandra_throughput: 0,
     mongo_latency: 0,
-    cassandra_latency: 0
+    cassandra_latency: 0,
   });
+  const reportMetricsRef = useRef<any>(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const loadDashboard = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await fetchJson<any>('/api/dashboard/summary');
 
-    const initFetch = async () => {
+      setControllerHealth(data.controller);
+      setMongoStatus(data.mongo);
+      setCassandraStatus(data.cassandra);
+      setContainerUptimes(data.uptimes || {});
+
+      // avg_latency from API is in seconds — convert to ms
+      const liveMongoLatencyMs = data.liveMetrics.mongo.avg_latency != null
+        ? data.liveMetrics.mongo.avg_latency * 1000
+        : null;
+      const liveCassLatencyMs = data.liveMetrics.cassandra.avg_latency != null
+        ? data.liveMetrics.cassandra.avg_latency * 1000
+        : null;
+
+      // Try to fall back to the latest performance report if live metrics are not available
+      let reportMetrics: any = null;
       try {
-        setLoading(true);
-        const data = await fetchJson<any>('/api/dashboard/summary');
-        if (!mounted) return;
+        reportMetrics = await fetchJson<any>('/api/report/metrics/latest');
+      } catch {
+        reportMetrics = null;
+      }
+      reportMetricsRef.current = reportMetrics;
 
-        setControllerHealth(data.controller);
-        setMongoStatus(data.mongo);
-        setCassandraStatus(data.cassandra);
-        setContainerUptimes(data.uptimes || {});
-        setLiveData({
-          timestamp: data.liveMetrics.timestamp,
-          cpu: data.liveMetrics.cpu_percent,
-          memory: data.liveMetrics.memory_percent,
-          mongo: { throughput: data.liveMetrics.mongo.throughput, avg_latency: data.liveMetrics.mongo.avg_latency },
-          cassandra: { throughput: data.liveMetrics.cassandra.throughput, avg_latency: data.liveMetrics.cassandra.avg_latency }
-        });
-        setLiveChartData([{
+      const pickMetric = (liveValue: number | null, reportValue: number | null) => {
+        if (liveValue != null && liveValue > 0) return liveValue;
+        if (reportValue != null && reportValue > 0) return reportValue;
+        return liveValue ?? reportValue ?? 0;
+      };
+
+      const mongoThroughput = pickMetric(
+        data.liveMetrics.mongo.throughput ?? null,
+        reportMetrics?.mongo?.throughput ?? null
+      );
+      const cassandraThroughput = pickMetric(
+        data.liveMetrics.cassandra.throughput ?? null,
+        reportMetrics?.cassandra?.throughput ?? null
+      );
+      const mongoLatency = pickMetric(liveMongoLatencyMs, reportMetrics?.mongo?.avg_latency ?? null);
+      const cassandraLatency = pickMetric(liveCassLatencyMs, reportMetrics?.cassandra?.avg_latency ?? null);
+
+      setLiveData({
+        timestamp: data.liveMetrics.timestamp,
+        cpu: data.liveMetrics.cpu_percent,
+        memory: data.liveMetrics.memory_percent,
+        mongo: {
+          throughput: mongoThroughput,
+          avg_latency: mongoLatency,
+        },
+        cassandra: {
+          throughput: cassandraThroughput,
+          avg_latency: cassandraLatency,
+        },
+      });
+      setLiveChartData([
+        {
           time: new Date(data.liveMetrics.timestamp).toLocaleTimeString(),
           cpu: data.liveMetrics.cpu_percent,
           memory: data.liveMetrics.memory_percent,
-          requests: data.liveMetrics.mongo.throughput
-        }]);
-        setError(null);
-      } catch (e: any) {
-        if (!mounted) return;
-        setError(e.message || 'Failed to load');
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
+          requests: mongoThroughput,
+        },
+      ]);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load dashboard');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    initFetch();
+  useEffect(() => {
+    let mounted = true;
+    loadDashboard();
 
     liveInterval.current = setInterval(async () => {
       try {
         const live = await fetchJson<any>('/api/report/metrics/live');
         if (!mounted) return;
-        const safeMongoThroughput =
-          live.mongo?.throughput || lastValues.current.mongo_throughput;
 
-        const safeCassThroughput =
-          live.cassandra?.throughput || lastValues.current.cassandra_throughput;
+        const report = reportMetricsRef.current;
+        const resolveMetric = (
+          liveValue: number | null | undefined,
+          lastValue: number,
+          reportValue: number | null | undefined
+        ) => {
+          if (liveValue != null && liveValue > 0) return liveValue;
+          if (lastValue > 0) return lastValue;
+          if (reportValue != null && reportValue > 0) return reportValue;
+          return liveValue ?? reportValue ?? lastValue ?? 0;
+        };
 
+        const safeMongoThroughput = resolveMetric(
+          live.mongo?.throughput,
+          lastValues.current.mongo_throughput,
+          report?.mongo?.throughput
+        );
+        const safeCassThroughput = resolveMetric(
+          live.cassandra?.throughput,
+          lastValues.current.cassandra_throughput,
+          report?.cassandra?.throughput
+        );
+
+        // API returns seconds — convert to ms
         const safeMongoLatency =
-          live.mongo?.avg_latency || lastValues.current.mongo_latency;
-
+          resolveMetric(live.mongo?.avg_latency, lastValues.current.mongo_latency, report?.mongo?.avg_latency) * 1000;
         const safeCassLatency =
-          live.cassandra?.avg_latency || lastValues.current.cassandra_latency;
+          resolveMetric(live.cassandra?.avg_latency, lastValues.current.cassandra_latency, report?.cassandra?.avg_latency) * 1000;
 
-        // Update liveData
         setLiveData({
           timestamp: live.timestamp,
           cpu: live.cpu_percent,
           memory: live.memory.percent,
           mongo: { throughput: safeMongoThroughput, avg_latency: safeMongoLatency },
-          cassandra: { throughput: safeCassThroughput, avg_latency: safeCassLatency }
+          cassandra: { throughput: safeCassThroughput, avg_latency: safeCassLatency },
         });
 
-        // store last values
         lastValues.current = {
           mongo_throughput: safeMongoThroughput,
           cassandra_throughput: safeCassThroughput,
-          mongo_latency: safeMongoLatency,
-          cassandra_latency: safeCassLatency
+          mongo_latency: live.mongo?.avg_latency || lastValues.current.mongo_latency,
+          cassandra_latency: live.cassandra?.avg_latency || lastValues.current.cassandra_latency,
         };
+
         setLiveChartData(prev => {
           const point = {
             time: new Date(live.timestamp).toLocaleTimeString(),
             cpu: live.cpu_percent,
             memory: live.memory.percent,
-            requests: safeMongoThroughput  
+            requests: safeMongoThroughput,
           };
-          return [...prev.slice(-19), point]; // keep last 20 points
+          return [...prev.slice(-19), point];
         });
       } catch (e) {
         console.error('Failed to fetch live metrics:', e);
@@ -133,28 +212,82 @@ export const Dashboard: React.FC = () => {
     };
   }, []);
 
-  const responseTimeData = useMemo(() => [
-    { database: 'MongoDB', responseTime: liveData.mongo.avg_latency },
-    { database: 'Cassandra', responseTime: liveData.cassandra.avg_latency }
-  ], [liveData]);
+  // ── derived data ──────────────────────────────────────────────────────────
 
-  const throughputData = useMemo(() => [
-    { database: 'MongoDB', throughput: liveData.mongo.throughput },
-    { database: 'Cassandra', throughput: liveData.cassandra.throughput }
-  ], [liveData]);
+  const responseTimeData = useMemo(
+    () => [
+      { database: 'MongoDB',   responseTime: liveData.mongo.avg_latency ?? 0 },
+      { database: 'Cassandra', responseTime: liveData.cassandra.avg_latency ?? 0 },
+    ],
+    [liveData]
+  );
 
-  const mongoHealthData = useMemo(() => [
-    { name: 'Healthy', value: mongoStatus?.members?.filter((m: any) => m.health === 1).length ?? 0, color: '#00ff88' },
-    { name: 'Unhealthy', value: mongoStatus?.members?.filter((m: any) => m.health !== 1).length ?? 0, color: '#ff4444' }
-  ], [mongoStatus]);
+  const throughputData = useMemo(
+    () => [
+      { database: 'MongoDB',   throughput: liveData.mongo.throughput ?? 0 },
+      { database: 'Cassandra', throughput: liveData.cassandra.throughput ?? 0 },
+    ],
+    [liveData]
+  );
 
-  const totalUptimeSeconds = useMemo(() => {
-    return Object.values(containerUptimes).reduce((sum, v) => sum + (v.hours * 3600 + v.seconds), 0);
-  }, [containerUptimes]);
+  const mongoHealthData = useMemo(
+    () => [
+      {
+        name: 'Healthy',
+        value: mongoStatus?.members?.filter((m: any) => m.health === 1).length ?? 0,
+        color: '#00ff88',
+      },
+      {
+        name: 'Unhealthy',
+        value: mongoStatus?.members?.filter((m: any) => m.health !== 1).length ?? 0,
+        color: '#ff4444',
+      },
+    ],
+    [mongoStatus]
+  );
 
-  if (loading) return <div className="container"><div className="loading"><div className="spinner"></div>Loading dashboard...</div></div>;
+  const totalUptimeSeconds = useMemo(
+    () =>
+      Object.values(containerUptimes).reduce(
+        (sum, v) => sum + (v.hours * 3600 + v.seconds),
+        0
+      ),
+    [containerUptimes]
+  );
 
-  // --- MongoDB Replica Set Table ---
+  const formatUptime = (seconds: number) => {
+    if (seconds === 0) return 'N/A';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return `${h}h ${m}m`;
+  };
+
+  const chartsHaveData =
+    (liveData.mongo.avg_latency ?? 0) > 0 ||
+    (liveData.cassandra.avg_latency ?? 0) > 0 ||
+    (liveData.mongo.throughput ?? 0) > 0 ||
+    (liveData.cassandra.throughput ?? 0) > 0;
+
+  const fmtLatency = (v: number | null) =>
+    v && v > 0 ? `${v.toFixed(1)} ms` : '—';
+
+  const fmtThroughput = (v: number | null) =>
+    v && v > 0 ? v.toFixed(1) : '—';
+
+  // ── loading ───────────────────────────────────────────────────────────────
+
+  if (loading)
+    return (
+      <div className="container">
+        <div className="loading">
+          <div className="spinner" />
+          Loading dashboard...
+        </div>
+      </div>
+    );
+
+  // ── tables ────────────────────────────────────────────────────────────────
+
   const renderMongoTable = () => (
     <section className="table-section">
       <div className="table-card">
@@ -162,14 +295,14 @@ export const Dashboard: React.FC = () => {
           <Database className="w-6 h-6" />
           MongoDB Replica Set Members
         </h2>
-        {mongoStatus?.members && mongoStatus.members.length > 0 ? (
+        {mongoStatus?.members?.length > 0 ? (
           <div className="table-container-full">
             <table className="table-full">
               <thead>
                 <tr>
                   <th>Node Name</th>
                   <th>State</th>
-                  <th>Health Status</th>
+                  <th>Health</th>
                   <th>Uptime</th>
                   <th>Last Heartbeat</th>
                   <th>Priority</th>
@@ -178,9 +311,15 @@ export const Dashboard: React.FC = () => {
               <tbody>
                 {mongoStatus.members.map((member: any, index: number) => (
                   <tr key={index}>
-                    <td className="font-medium">{member.name?.split(':')[0] || `Node ${index + 1}`}</td>
+                    <td className="font-medium">
+                      {member.name?.split(':')[0] || `Node ${index + 1}`}
+                    </td>
                     <td>
-                      <span className={`status-badge ${member.state === 1 ? 'primary' : member.state === 2 ? 'secondary' : 'other'}`}>
+                      <span
+                        className={`status-badge ${
+                          member.state === 1 ? 'primary' : member.state === 2 ? 'secondary' : 'other'
+                        }`}
+                      >
                         {member.state === 1 ? 'PRIMARY' : member.state === 2 ? 'SECONDARY' : 'OTHER'}
                       </span>
                     </td>
@@ -190,30 +329,24 @@ export const Dashboard: React.FC = () => {
                       </span>
                     </td>
                     <td className="text-muted">
-                      {member.uptime ? `${Math.floor(member.uptime / 3600)}h ${Math.floor((member.uptime % 3600) / 60)}m` : 'N/A'}
+                      {member.uptime
+                        ? `${Math.floor(member.uptime / 3600)}h ${Math.floor((member.uptime % 3600) / 60)}m`
+                        : 'N/A'}
                     </td>
                     <td className="text-muted">
-                      {member.lastHeartbeatMessage ?
-                        new Date(member.lastHeartbeatMessage).toLocaleString('en-US', {
-                          month: 'short', day: 'numeric',
-                          hour: '2-digit', minute: '2-digit', second: '2-digit'
-                        }) :
-                        member.lastHeartbeat ?
-                          new Date(member.lastHeartbeat).toLocaleString('en-US', {
+                      {member.lastHeartbeat
+                        ? new Date(member.lastHeartbeat).toLocaleString('en-US', {
                             month: 'short', day: 'numeric',
-                            hour: '2-digit', minute: '2-digit'
-                          }) :
-                          'Active'
-                      }
+                            hour: '2-digit', minute: '2-digit',
+                          })
+                        : 'Active'}
                     </td>
                     <td className="text-muted">
-                      {member.priority ? `Priority: ${member.priority}` :
-                        member.electionDate ?
-                          `Elected: ${new Date(member.electionDate).toLocaleDateString('en-US', {
-                            month: 'short', day: 'numeric', year: 'numeric'
-                          })}` :
-                          'Default (1)'
-                      }
+                      {member.electionDate
+                        ? `Elected: ${new Date(member.electionDate).toLocaleDateString('en-US', {
+                            month: 'short', day: 'numeric', year: 'numeric',
+                          })}`
+                        : 'Default (1)'}
                     </td>
                   </tr>
                 ))}
@@ -227,63 +360,92 @@ export const Dashboard: React.FC = () => {
     </section>
   );
 
-  // --- Cassandra Cluster Peers Table ---
-  const renderCassandraTable = () => (
-    <section className="table-section">
-      <div className="table-card">
-        <h2>
-          <HardDrive className="w-6 h-6" />
-          Cassandra Cluster Peers
-        </h2>
-        {cassandraStatus?.peers && cassandraStatus.peers.length > 0 ? (
-          <div className="table-container-full">
-            <table className="table-full">
-              <thead>
-                <tr>
-                  <th>Peer Address</th>
-                  <th>Data Center</th>
-                  <th>Rack</th>
-                  <th>Host ID</th>
-                  <th>RPC Address</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cassandraStatus.peers.map((peer: any, index: number) => (
-                  <tr key={index}>
-                    <td className="font-medium">{peer.peer || 'N/A'}</td>
-                    <td>
-                      <span className="status-badge online">
-                        {peer.data_center || 'N/A'}
-                      </span>
-                    </td>
-                    <td className="text-muted">{peer.rack || 'rack1'}</td>
-                    <td className="text-muted font-mono text-xs">{peer.host_id || 'N/A'}</td>
-                    <td className="text-muted">{peer.rpc_address || 'N/A'}</td>
-                    <td>
-                      <span className="status-badge online">ONLINE</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="no-data">No Cassandra cluster peers data available</div>
-        )}
-      </div>
-    </section>
-  );
+  const renderCassandraTable = () => {
+    const localRow = cassandraStatus?.local
+      ? {
+          peer: cassandraStatus.local.broadcast_address ?? 'local',
+          data_center: cassandraStatus.local.data_center,
+          rack: 'rack1',
+          host_id: cassandraStatus.local.host_id,
+          rpc_address: cassandraStatus.local.broadcast_address,
+          isLocal: true,
+        }
+      : null;
 
+    const allNodes = [
+      ...(localRow ? [localRow] : []),
+      ...(cassandraStatus?.peers ?? []).map(p => ({ ...p, isLocal: false })),
+    ];
+
+    return (
+      <section className="table-section">
+        <div className="table-card">
+          <h2>
+            <HardDrive className="w-6 h-6" />
+            Cassandra Cluster Nodes
+          </h2>
+          {allNodes.length > 0 ? (
+            <div className="table-container-full">
+              <table className="table-full">
+                <thead>
+                  <tr>
+                    <th>Node Address</th>
+                    <th>Role</th>
+                    <th>Data Center</th>
+                    <th>Rack</th>
+                    <th>Host ID</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allNodes.map((node: any, index: number) => (
+                    <tr key={index}>
+                      <td className="font-medium">{node.peer || 'N/A'}</td>
+                      <td>
+                        <span className={`status-badge ${node.isLocal ? 'primary' : 'secondary'}`}>
+                          {node.isLocal ? 'LOCAL' : 'PEER'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="status-badge online">
+                          {node.data_center || 'dc1'}
+                        </span>
+                      </td>
+                      <td className="text-muted">{node.rack || 'rack1'}</td>
+                      <td className="text-muted font-mono text-xs">{node.host_id || 'N/A'}</td>
+                      <td>
+                        <span className="status-badge online">ONLINE</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="no-data">No Cassandra cluster data available</div>
+          )}
+        </div>
+      </section>
+    );
+  };
+
+  // ── render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="container">
       <header className="header">
         <h1>System Dashboard</h1>
-        <p>Real‑time monitoring of distributed database clusters</p>
+        <p>Real-time monitoring of distributed database clusters</p>
       </header>
 
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <div className="error" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span>{error}</span>
+          <button className="btn btn-secondary" onClick={loadDashboard}>
+            <RefreshCw className="w-4 h-4" /> Retry
+          </button>
+        </div>
+      )}
 
       {/* Status bubbles */}
       <section className="status-bubbles">
@@ -307,12 +469,67 @@ export const Dashboard: React.FC = () => {
           <div className="status-text">
             <div className="status-title">Cassandra</div>
             <div className="status-value">{cassandraStatus ? 'ONLINE' : 'OFFLINE'}</div>
-            <div className="status-count">{cassandraStatus?.peers?.length ?? 0} peers</div>
+            <div className="status-count">
+              {(cassandraStatus?.peers?.length ?? 0) + (cassandraStatus?.local ? 1 : 0)} nodes
+            </div>
           </div>
         </div>
       </section>
 
+      {/* Metric cards */}
+      <section className="grid grid-cols-2 gap-6" style={{ marginBottom: '1.5rem' }}>
+        <div className="card">
+          <h2><Activity className="w-6 h-6" /> Live Metrics</h2>
+          <div className="grid grid-cols-2 gap-4" style={{ marginTop: '1rem' }}>
+            <div className="metric-card">
+              <div className="metric-value">{liveData.cpu.toFixed(1)}%</div>
+              <div className="metric-label">CPU Usage</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-value">{liveData.memory.toFixed(1)}%</div>
+              <div className="metric-label">Memory Usage</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-value" style={{ color: '#00d4ff' }}>
+                {fmtLatency(liveData.mongo.avg_latency)}
+              </div>
+              <div className="metric-label">MongoDB Avg Latency</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-value" style={{ color: '#00ff88' }}>
+                {fmtLatency(liveData.cassandra.avg_latency)}
+              </div>
+              <div className="metric-label">Cassandra Avg Latency</div>
+            </div>
+          </div>
+        </div>
 
+        <div className="card">
+          <h2><Timer className="w-6 h-6" /> Cluster Uptime</h2>
+          <div className="grid grid-cols-2 gap-4" style={{ marginTop: '1rem' }}>
+            <div className="metric-card">
+              <div className="metric-value">{formatUptime(totalUptimeSeconds)}</div>
+              <div className="metric-label">Total Container Uptime</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-value" style={{ color: '#00d4ff' }}>
+                {fmtThroughput(liveData.mongo.throughput)}
+              </div>
+              <div className="metric-label">MongoDB ops/s</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-value" style={{ color: '#00ff88' }}>
+                {fmtThroughput(liveData.cassandra.throughput)}
+              </div>
+              <div className="metric-label">Cassandra ops/s</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-value">{Object.keys(containerUptimes).length || '—'}</div>
+              <div className="metric-label">Containers Tracked</div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Charts */}
       <section className="charts-section">
@@ -328,16 +545,13 @@ export const Dashboard: React.FC = () => {
                 <XAxis dataKey="time" stroke="#a0a0a0" />
                 <YAxis stroke="#a0a0a0" />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#1a1a1a",
-                    border: "1px solid #333",
-                    borderRadius: "8px",
-                  }}
-                  labelStyle={{ color: "#fff" }}
+                  contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }}
+                  labelStyle={{ color: '#fff' }}
                 />
-                <Line type="monotone" dataKey="cpu" stroke="#00d4ff" strokeWidth={3} isAnimationActive={false} />
-                <Line type="monotone" dataKey="memory" stroke="#00ff88" strokeWidth={3} isAnimationActive={false} />
-                <Line type="monotone" dataKey="requests" stroke="#ffaa00" strokeWidth={3} isAnimationActive={false} />
+                <Legend wrapperStyle={{ color: '#a0a0a0', fontSize: 12 }} />
+                <Line type="monotone" dataKey="cpu"      stroke="#00d4ff" strokeWidth={3} name="CPU %"       />
+                <Line type="monotone" dataKey="memory"   stroke="#00ff88" strokeWidth={3} name="Memory %"    />
+                <Line type="monotone" dataKey="requests" stroke="#ffaa00" strokeWidth={3} name="Requests/s"  />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -345,89 +559,82 @@ export const Dashboard: React.FC = () => {
 
         <div className="chart-card">
           <h2><Clock className="w-6 h-6" /> Response Time Comparison</h2>
-          <p className="chart-description">
-            Average latency per operation for MongoDB vs Cassandra.
-          </p>
+          <p className="chart-description">Average latency per operation (ms).</p>
           <div className="chart-container">
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={responseTimeData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis dataKey="database" stroke="#a0a0a0" fontSize={12} />
-                <YAxis stroke="#a0a0a0" fontSize={12} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#1a1a1a",
-                    border: "1px solid #333",
-                    borderRadius: "8px",
-                  }}
-                  labelStyle={{ color: "#fff" }}
-                  itemStyle={{ color: "#00eaff" }}
-                />
-                <Bar dataKey="responseTime" fill="#00d4ff" name="Response Time (ms)" />
-              </BarChart>
-            </ResponsiveContainer>
+            {!chartsHaveData ? (
+              <div className="no-data" style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                No data yet — run a performance test to populate
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={responseTimeData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis dataKey="database" stroke="#a0a0a0" fontSize={12} />
+                  <YAxis stroke="#a0a0a0" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }}
+                    labelStyle={{ color: '#fff' }}
+                    formatter={(v: any) => [`${Number(v).toFixed(2)} ms`, 'Avg Latency']}
+                  />
+                  <Bar dataKey="responseTime" fill="#00d4ff" name="Avg Latency (ms)" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
         <div className="chart-card">
           <h2><Activity className="w-6 h-6" /> Throughput Comparison</h2>
-          <p className="chart-description">
-            Number of operations per second processed by each database.
-          </p>
-
+          <p className="chart-description">Operations per second processed by each database.</p>
           <div className="chart-container">
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={throughputData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis dataKey="database" stroke="#a0a0a0" fontSize={12} />
-                <YAxis stroke="#a0a0a0" fontSize={12} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#1a1a1a",
-                    border: "1px solid #333",
-                    borderRadius: "8px",
-                  }}
-                  labelStyle={{ color: "#fff" }}
-                  itemStyle={{ color: "#00eaff" }}
-                />
-                <Bar dataKey="throughput" fill="#00ff88" name="Throughput (ops/sec)" />
-              </BarChart>
-            </ResponsiveContainer>
+            {!chartsHaveData ? (
+              <div className="no-data" style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                No data yet — run a performance test to populate
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={throughputData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis dataKey="database" stroke="#a0a0a0" fontSize={12} />
+                  <YAxis stroke="#a0a0a0" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }}
+                    labelStyle={{ color: '#fff' }}
+                    formatter={(v: any) => [`${Number(v).toFixed(1)} ops/s`, 'Throughput']}
+                  />
+                  <Bar dataKey="throughput" fill="#00ff88" name="Throughput (ops/s)" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
+
         <div className="chart-card">
           <h2><Shield className="w-6 h-6" /> MongoDB Health Overview</h2>
-          <p className="chart-description">
-            Shows how many replica set members are healthy vs unhealthy.
-          </p>
-
+          <p className="chart-description">Healthy vs unhealthy replica set members.</p>
           <div className="chart-container">
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
-                  data={[...mongoHealthData, { name: 'Other', value: 0, color: '#888' }]}
+                  data={mongoHealthData}
                   cx="50%" cy="50%"
                   innerRadius={60} outerRadius={120}
-                  fill="#888" paddingAngle={5} dataKey="value">
+                  paddingAngle={5} dataKey="value"
+                >
                   {mongoHealthData.map((entry, idx) => (
                     <Cell key={idx} fill={entry.color} />
                   ))}
                 </Pie>
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#1a1a1a",
-                    border: "1px solid #333",
-                    borderRadius: "8px",
-                  }}
-                  labelStyle={{ color: "#fff" }}
-                  itemStyle={{ color: "#00eaff" }}
+                  contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }}
+                  labelStyle={{ color: '#fff' }}
                 />
+                <Legend wrapperStyle={{ color: '#a0a0a0', fontSize: 12 }} />
               </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
       </section>
-
 
       {renderMongoTable()}
       {renderCassandraTable()}
