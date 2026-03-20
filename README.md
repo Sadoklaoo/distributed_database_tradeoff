@@ -25,6 +25,8 @@ A comparative analysis system for distributed databases using **Cassandra** and 
 ### **Frontend (React + Vite)**
 - Dashboard for monitoring cluster status and metrics
 - Visualization of live metrics, throughput, latency, and health
+- New batch-run results cards with responsive summaries + sparkline min/mean/p95/p99 indicators
+- Improved nav menu grouping with single active selection for stability tests and performance suites
 - Served via **Nginx** in Docker (production) or Vite dev server (local)
 
 ## 📁 Project Structure

@@ -566,6 +566,67 @@ body {
   border: 1px solid rgba(0, 212, 255, 0.2);
 }
 
+.nav-group {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.nav-group-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  text-align: left;
+}
+
+.nav-group-header:hover {
+  background: var(--card);
+  color: var(--text);
+}
+
+.nav-group-items {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  padding: 0.75rem 0.5rem;
+  width: 220px;
+  display: none;
+  flex-direction: column;
+  gap: 0.25rem;
+  background: var(--card);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+  z-index: 1000;
+}
+
+.nav-group[data-open="true"] .nav-group-items {
+  display: flex;
+}
+
+.nav-group:hover .nav-group-items {
+  display: flex;
+}
+
+.nav-group-chevron {
+  margin-left: auto;
+  transition: transform 0.2s ease;
+}
+
+.nav-group-chevron.open {
+  transform: rotate(90deg);
+}
+
 /* Mobile Navigation */
 @media (max-width: 768px) {
   .navbar {
@@ -602,6 +663,26 @@ body {
   .navbar-link {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .nav-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .nav-group-items {
+    position: static;
+    width: auto;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    display: none;
+  }
+
+  .nav-group[data-open="true"] .nav-group-items {
+    display: flex;
   }
   
   .main-content {
@@ -1015,6 +1096,78 @@ body {
   font-weight: 700;
   color: var(--accent);
   margin-bottom: 0.5rem;
+}
+
+.metric-value-small {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.metric-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.metric-row:last-child {
+  border-bottom: none;
+}
+
+.sparkline-container {
+  margin-top: 0.8rem;
+  text-align: left;
+  width: 100%;
+}
+
+.sparkline {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem;
+}
+
+.sparkline-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.card-legend {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+  margin-left: 0.25rem;
+  letter-spacing: 0.02em;
+}
+
+.sparkline-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  height: 38px;
+}
+
+.sparkline-bar {
+  flex: 1;
+  background: linear-gradient(180deg, #00d4ff, #006db3);
+  border-radius: 999px;
+  min-width: 5px;
+  width: 100%;
+  max-width: 12px;
+  transition: transform 0.2s ease;
+}
+
+.sparkline-bar:hover {
+  transform: translateY(-2px);
 }
 
 .metric-label {

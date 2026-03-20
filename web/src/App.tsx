@@ -5,6 +5,7 @@ import { Dashboard } from './pages/Dashboard';
 import { MongoDB } from './pages/MongoDB';
 import { Cassandra } from './pages/Cassandra';
 import { Performance } from './pages/Performance';
+import { BatchRun } from './pages/BatchRun';
 import { FailureTesting } from './pages/FailureTesting';
 import { PerformanceHistory } from './pages/PerformanceHistory';
 import { Staleness } from './pages/Staleness';
@@ -20,6 +21,7 @@ export const App: React.FC = () => {
           <Route path="/mongodb" element={<MongoDB />} />
           <Route path="/cassandra" element={<Cassandra />} />
           <Route path="/performance" element={<Performance />} />
+          <Route path="/batch-run" element={<BatchRun />} />
           <Route path="/history" element={<PerformanceHistory />} />
           <Route path="/failure-testing" element={<FailureTesting />} />
           <Route path="/staleness" element={<Staleness />} />
